@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+@theme {
+  --color-zinc-950: #09090b;
+  --color-zinc-900: #18181b;
+  --color-zinc-800: #27272a;
+  --color-accent-blue: #00d4ff;
+  --color-accent-green: #00ff88;
+}
+
+@layer base {
+  :root {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 240 10% 3.9%;
+    --card-foreground: 0 0% 98%;
+    --border: 240 3.7% 15.9%;
+  }
+
+  body {
+    background-color: theme('colors.zinc.950');
+    color: theme('colors.zinc.100');
+    font-family: 'Geist', 'Inter', sans-serif;
+  }
+}
