@@ -264,7 +264,7 @@ function App() {
                 ))}
               </div>
             </div>
-          </div>iv>
+          </div>
 
           <TerminalLog logs={logs} onClear={() => setLogs([])} />
           
