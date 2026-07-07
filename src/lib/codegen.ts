@@ -160,3 +160,82 @@ void OpenSerial_Task(void) {
   code += `}\n`;
   return code;
 }
+
+export function generateMicroPythonCode(widgets: string[], controls: ControlSpec[]): string {
+  const hasRx = controls.length > 0;
+  const hasTx = widgets.length > 0;
+  const txWidgets = hasTx ? widgets : ['Temperature', 'Humidity'];
+
+  let code = `'''
+ OpenSerial Studio Auto-Generated Code
+ Board: MicroPython (ESP32, Raspberry Pi Pico)
+'''
+import machine
+import json
+import time
+import select
+import sys
+
+# --- Pin Definitions (Modify to match your hardware) ---
+`;
+
+  if (hasRx) {
+    controls.forEach((c, i) => {
+      code += `${c.id}_pin = machine.Pin(${i + 2}, machine.Pin.OUT)\n`;
+      if (c.type === 'slider') {
+        code += `${c.id}_pwm = machine.PWM(${c.id}_pin)\n`;
+      }
+    });
+  }
+  
+  if (hasTx || !hasRx) {
+    txWidgets.forEach((w, i) => {
+      code += `${w}_adc = machine.ADC(machine.Pin(${i + 32}))\n`;
+    });
+  }
+
+  code += `
+last_send_time = time.ticks_ms()
+send_interval = 100 # 100ms
+
+poll_obj = select.poll()
+poll_obj.register(sys.stdin, select.POLLIN)
+
+while True:
+`;
+
+  if (hasRx) {
+    code += `    # --- RX: Read commands from Web Dashboard ---\n`;
+    code += `    if poll_obj.poll(0):\n`;
+    code += `        line = sys.stdin.readline()\n`;
+    code += `        if line:\n`;
+    code += `            try:\n`;
+    code += `                data = json.loads(line)\n`;
+    controls.forEach(c => {
+      code += `                if "${c.id}" in data:\n`;
+      if (c.type === 'button') {
+        code += `                    ${c.id}_pin.value(int(data["${c.id}"]))\n`;
+      } else {
+        code += `                    ${c.id}_pwm.duty(int(data["${c.id}"]) * 10) # scale 0-100 to duty\n`;
+      }
+    });
+    code += `            except Exception as e:\n`;
+    code += `                pass\n\n`;
+  }
+
+  if (hasTx || !hasRx) {
+    code += `    # --- TX: Send data to Web Dashboard ---\n`;
+    code += `    current_time = time.ticks_ms()\n`;
+    code += `    if time.ticks_diff(current_time, last_send_time) >= send_interval:\n`;
+    code += `        last_send_time = current_time\n`;
+    code += `        \n`;
+    code += `        payload = {\n`;
+    txWidgets.forEach(w => {
+      code += `            "${w}": ${w}_adc.read() / 40.95, # scale to 0-100 approx\n`;
+    });
+    code += `        }\n`;
+    code += `        print(json.dumps(payload))\n`;
+  }
+
+  return code;
+}
