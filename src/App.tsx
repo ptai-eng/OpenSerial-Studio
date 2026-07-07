@@ -37,6 +37,10 @@ function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [baudRate, setBaudRate] = useState<number>(115200);
 
+  // Demo mode
+  const [isDemoMode, setIsDemoMode] = useState(false);
+  const demoIntervalRef = useRef<number | null>(null);
+
   // Throttling buffers
   const logsBuffer = useRef<string[]>([]);
   const latestPayload = useRef<Record<string, number | string> | null>(null);
@@ -75,6 +79,27 @@ function App() {
     }
   }, [status, readLoop, handleData]);
 
+  const toggleDemoMode = () => {
+    if (isDemoMode) {
+      setIsDemoMode(false);
+      if (demoIntervalRef.current) clearInterval(demoIntervalRef.current);
+      setWidgets(new Map());
+    } else {
+      setIsDemoMode(true);
+      let t = 0;
+      demoIntervalRef.current = window.setInterval(() => {
+        t += 0.1;
+        const fakePayload = {
+          Temperature: 25 + Math.sin(t) * 5 + Math.random(),
+          Humidity: 50 + Math.cos(t * 0.5) * 10,
+          MotorSpeed: Math.abs(Math.sin(t * 2)) * 100
+        };
+        const jsonStr = JSON.stringify(fakePayload);
+        handleData(jsonStr);
+      }, 100);
+    }
+  };
+
   const handleDisconnect = () => {
     disconnect();
     setWidgets(new Map());
@@ -112,6 +137,8 @@ function App() {
         onDisconnect={handleDisconnect} 
         onOpenCodeGen={() => setIsCodeGenOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onDemo={toggleDemoMode}
+        isDemoMode={isDemoMode}
         isRecording={isRecording}
         onStartRecording={startRecording}
         onStopRecording={stopRecording}
@@ -129,14 +156,14 @@ function App() {
           
           {widgets.size === 0 ? (
             <div className="bg-zinc-900 border border-white/5 rounded-2xl p-8 flex flex-col items-center justify-center text-center min-h-[300px]">
-               {status === 'connected' ? (
+               {status === 'connected' || isDemoMode ? (
                   <div>
                     <div className="w-16 h-16 rounded-full bg-zinc-800/50 flex items-center justify-center mx-auto mb-4 border border-accent-blue/20">
-                      <span className="text-accent-blue animate-pulse">JSON</span>
+                       <span className="text-accent-blue animate-pulse">JSON</span>
                     </div>
                      <h2 className="text-xl font-bold text-zinc-100 mb-2">Listening for Data...</h2>
                      <p className="text-zinc-400 max-w-sm mx-auto">
-                       Send a JSON payload via UART to automatically generate widgets.
+                       {isDemoMode ? "Generating fake JSON data..." : "Send a JSON payload via UART to automatically generate widgets."}
                      </p>
                   </div>
                ) : (

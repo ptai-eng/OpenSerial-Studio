@@ -9,6 +9,8 @@ interface HeaderProps {
   onDisconnect: () => void;
   onOpenCodeGen: () => void;
   onOpenSettings: () => void;
+  onDemo?: () => void;
+  isDemoMode?: boolean;
   isRecording?: boolean;
   onStartRecording?: () => void;
   onStopRecording?: () => void;
@@ -18,7 +20,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ 
   status, onConnect, onDisconnect, onOpenCodeGen, onOpenSettings,
-  isRecording, onStartRecording, onStopRecording, onExportCSV, logCount
+  onDemo, isDemoMode, isRecording, onStartRecording, onStopRecording, onExportCSV, logCount
 }) => {
   return (
     <header className="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-zinc-950/80 backdrop-blur-md sticky top-0 z-50">
@@ -56,15 +58,24 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Connect Buttons */}
-        {status !== 'connected' ? (
-          <button 
-            onClick={onConnect}
-            disabled={status === 'connecting'}
-            className="flex items-center gap-2 px-4 py-2 bg-zinc-100 text-zinc-950 hover:bg-white rounded-lg font-semibold text-sm transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100"
-          >
-            <Plug className="w-4 h-4" />
-            Connect
-          </button>
+        {status !== 'connected' && !isDemoMode ? (
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={onDemo}
+              className="flex items-center gap-2 px-3 py-2 bg-zinc-800 text-zinc-300 hover:text-white hover:bg-zinc-700 rounded-lg font-semibold text-sm transition-all active:scale-95"
+            >
+              <Activity className="w-4 h-4 text-accent-blue" />
+              Demo
+            </button>
+            <button 
+              onClick={onConnect}
+              disabled={status === 'connecting'}
+              className="flex items-center gap-2 px-4 py-2 bg-zinc-100 text-zinc-950 hover:bg-white rounded-lg font-semibold text-sm transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100"
+            >
+              <Plug className="w-4 h-4" />
+              Connect
+            </button>
+          </div>
         ) : (
           <>
             <div className="flex items-center gap-2 mr-4">
@@ -101,11 +112,11 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
 
             <button 
-              onClick={onDisconnect}
+              onClick={status === 'connected' ? onDisconnect : onDemo}
               className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded-lg font-semibold text-sm transition-all active:scale-95 border border-red-500/20"
             >
               <Zap className="w-4 h-4" />
-              Disconnect
+              {isDemoMode ? 'Stop Demo' : 'Disconnect'}
             </button>
           </>
         )}
