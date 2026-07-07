@@ -6,6 +6,7 @@ export interface ControlSpec {
 export function generateArduinoCode(widgets: string[], controls: ControlSpec[]): string {
   const hasRx = controls.length > 0;
   const hasTx = widgets.length > 0;
+  const txWidgets = hasTx ? widgets : ['Temperature', 'Humidity'];
 
   let code = `/*
  * OpenSerial Studio Auto-Generated Code
@@ -18,17 +19,27 @@ export function generateArduinoCode(widgets: string[], controls: ControlSpec[]):
 unsigned long lastSendTime = 0;
 const int sendInterval = 100; // Send data every 100ms (10Hz)
 
-void setup() {
-  Serial.begin(115200);
-  while (!Serial) continue;
+// --- Pin Definitions (Modify to match your hardware) ---
 `;
+
+  if (hasRx) {
+    controls.forEach((c, i) => {
+      code += `const int ${c.id}_PIN = ${i + 2};  // Output pin for ${c.id}\n`;
+    });
+  }
+  
+  if (hasTx || !hasRx) {
+    txWidgets.forEach((w, i) => {
+      code += `const int ${w}_PIN = A${i}; // Analog input for ${w}\n`;
+    });
+  }
+
+  code += `\nvoid setup() {\n  Serial.begin(115200);\n  while (!Serial) continue;\n`;
 
   if (hasRx) {
     code += `\n  // Initialize pins for controls\n`;
     controls.forEach(c => {
-      if (c.type === 'button') {
-        code += `  // pinMode(${c.id}_PIN, OUTPUT);\n`;
-      }
+      code += `  pinMode(${c.id}_PIN, OUTPUT);\n`;
     });
   }
 
@@ -45,24 +56,23 @@ void setup() {
       code += `      if (doc.containsKey("${c.id}")) {\n`;
       if (c.type === 'button') {
         code += `        int val = doc["${c.id}"];\n`;
-        code += `        // digitalWrite(${c.id}_PIN, val);\n`;
+        code += `        digitalWrite(${c.id}_PIN, val);\n`;
       } else {
         code += `        int val = doc["${c.id}"];\n`;
-        code += `        // analogWrite(${c.id}_PIN, val);\n`;
+        code += `        analogWrite(${c.id}_PIN, val);\n`;
       }
       code += `      }\n`;
     });
     code += `    }\n  }\n\n`;
   }
 
-  if (hasTx || !hasRx) { // If nothing, generate generic tx
-    const txWidgets = hasTx ? widgets : ['Temperature', 'Humidity'];
+  if (hasTx || !hasRx) { 
     code += `  // --- TX: Send data to Web Dashboard ---\n`;
     code += `  if (millis() - lastSendTime >= sendInterval) {\n`;
     code += `    lastSendTime = millis();\n\n`;
     code += `    JsonDocument doc;\n`;
     txWidgets.forEach(w => {
-      code += `    doc["${w}"] = random(0, 100); // Replace with actual sensor read\n`;
+      code += `    doc["${w}"] = analogRead(${w}_PIN); // Read sensor\n`;
     });
     code += `\n    serializeJson(doc, Serial);\n`;
     code += `    Serial.println();\n  }\n`;

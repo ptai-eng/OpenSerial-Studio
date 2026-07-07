@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, Code2, Copy, Check } from 'lucide-react';
-import { generateArduinoCode, generateSTM32Code } from '../../lib/codegen';
+import { generateArduinoCode, generateSTM32Code, generateMicroPythonCode } from '../../lib/codegen';
 import type { ControlSpec } from '../../lib/codegen';
 
 interface CodeGeneratorModalProps {
@@ -16,14 +16,16 @@ export const CodeGeneratorModal: React.FC<CodeGeneratorModalProps> = ({
   widgetKeys, 
   controls 
 }) => {
-  const [activeTab, setActiveTab] = useState<'arduino' | 'stm32'>('arduino');
+  const [activeTab, setActiveTab] = useState<'arduino' | 'stm32' | 'micropython'>('arduino');
   const [copied, setCopied] = useState(false);
 
   if (!isOpen) return null;
 
   const code = activeTab === 'arduino' 
     ? generateArduinoCode(widgetKeys, controls) 
-    : generateSTM32Code(widgetKeys, controls);
+    : activeTab === 'stm32' 
+      ? generateSTM32Code(widgetKeys, controls)
+      : generateMicroPythonCode(widgetKeys, controls);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(code);
@@ -66,6 +68,14 @@ export const CodeGeneratorModal: React.FC<CodeGeneratorModalProps> = ({
             }`}
           >
             STM32 (C / HAL)
+          </button>
+          <button 
+            onClick={() => setActiveTab('micropython')}
+            className={`px-6 py-3 text-sm font-semibold transition-colors border-b-2 ${
+              activeTab === 'micropython' ? 'border-accent-blue text-accent-blue bg-accent-blue/5' : 'border-transparent text-zinc-500 hover:text-zinc-300 hover:bg-white/5'
+            }`}
+          >
+            MicroPython (ESP32/Pico)
           </button>
         </div>
 
