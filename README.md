@@ -50,6 +50,7 @@ Whether you are debugging a PID controller, monitoring unlimited environmental s
 - **Smart Pin Mapping (Arduino):** Instead of generating generic code, the software now intelligently assigns real hardware pins based on your UI setup:
   - **Sensors (Charts/Gauge):** Automatically mapped to Analog pins (A0, A1, A2...) using \`analogRead()\` to fetch real-world data.
   - **Controls (Buttons/Sliders):** Automatically mapped to Digital/PWM pins (2, 3...) using \`digitalWrite()\` or \`analogWrite()\` for real-world actuation.
+
 ## 🚀 Getting Started
 
 ### Prerequisites
