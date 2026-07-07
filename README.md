@@ -56,7 +56,7 @@ Whether you are debugging a PID controller, monitoring unlimited environmental s
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-username/OpenSerial-Studio.git
+   git clone https://github.com/ptai-eng/OpenSerial-Studio.git
    cd OpenSerial-Studio
    ```
 
