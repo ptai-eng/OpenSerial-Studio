@@ -46,8 +46,10 @@ Whether you are debugging a PID controller, monitoring unlimited environmental s
 - **CSV Export:** Export thousands of data points instantly to `.csv` for Excel analysis, graphing, or machine learning datasets.
 
 ### 5. Auto Code Generator
-- **C/C++ Binding:** Click the "Generate Code" button to automatically get production-ready C/C++ boilerplates (for STM32, Arduino, ESP32) tailored to the exact variables and UI controls you've created in the dashboard.
-
+- **Multi-Platform Support:** Click the "Generate Code" button to automatically get production-ready boilerplates for **Arduino**, **STM32 (HAL)**, and **MicroPython (ESP32/Raspberry Pi Pico)**.
+- **Smart Pin Mapping (Arduino):** Instead of generating generic code, the software now intelligently assigns real hardware pins based on your UI setup:
+  - **Sensors (Charts/Gauge):** Automatically mapped to Analog pins (A0, A1, A2...) using \`analogRead()\` to fetch real-world data.
+  - **Controls (Buttons/Sliders):** Automatically mapped to Digital/PWM pins (2, 3...) using \`digitalWrite()\` or \`analogWrite()\` for real-world actuation.
 ## 🚀 Getting Started
 
 ### Prerequisites
