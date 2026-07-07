@@ -12,6 +12,8 @@
     <a href="https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps"><img src="https://img.shields.io/badge/PWA-Ready-5A0FC8.svg?logo=pwa" alt="PWA Ready"></a>
     <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
   </p>
+
+  <img src="screenshot.png" width="100%" alt="OpenSerial Studio Dashboard Screenshot"/>
 </div>
 
 ---
