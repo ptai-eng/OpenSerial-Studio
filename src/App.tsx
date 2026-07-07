@@ -117,6 +117,15 @@ function App() {
     setControls(controls.filter(c => c.id !== id));
   };
 
+  const handleWrite = (data: string) => {
+    // Echo TX to terminal logs
+    logsBuffer.current.push(`> ${data}`);
+    
+    if (!isDemoMode) {
+      write(data);
+    }
+  };
+
   return (
     <DashboardLayout>
       <CodeGeneratorModal 
@@ -214,7 +223,7 @@ function App() {
                   type="text" 
                   ref={inputRef}
                   value={newControlId}
-                  onChange={(e) => setNewControlId(e.target.value.replace(/\\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, ''))}
+                  onChange={(e) => setNewControlId(e.target.value.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, ''))}
                   placeholder="Var Name (e.g. LED_1)" 
                   className="flex-1 w-0 min-w-0 bg-zinc-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-accent-blue"
                 />
@@ -247,15 +256,15 @@ function App() {
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                     {ctrl.type === 'button' ? (
-                      <ButtonControl id={ctrl.id} label={ctrl.label} onSend={write} />
+                      <ButtonControl id={ctrl.id} label={ctrl.label} onSend={handleWrite} />
                     ) : (
-                      <SliderControl id={ctrl.id} label={ctrl.label} onSend={write} />
+                      <SliderControl id={ctrl.id} label={ctrl.label} onSend={handleWrite} />
                     )}
                   </div>
                 ))}
               </div>
             </div>
-          </div>
+          </div>iv>
 
           <TerminalLog logs={logs} onClear={() => setLogs([])} />
           
