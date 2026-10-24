@@ -17,13 +17,15 @@ import {
   type ParsedTelemetryFrame,
   type SerialProtocol,
 } from './lib/parser';
-import { PlusCircle, Trash2 } from 'lucide-react';
+import { PlusCircle, Trash2, Waves, Cpu, Thermometer } from 'lucide-react';
 
 interface ControlConfig {
   id: string;
   type: 'button' | 'slider';
   label: string;
 }
+
+export type DemoPreset = 'dsp_harmonics' | 'pid_motor' | 'iot_env';
 
 function App() {
   const { status, connect, disconnect, readLoop, write, writeBytes, error } = useWebSerial();
@@ -43,8 +45,9 @@ function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [baudRate, setBaudRate] = useState<number>(115200);
 
-  // Demo mode
+  // Demo mode & preset
   const [isDemoMode, setIsDemoMode] = useState(false);
+  const [demoPreset, setDemoPreset] = useState<DemoPreset>('dsp_harmonics');
   const demoIntervalRef = useRef<number | null>(null);
 
   // Lossless Ring-Buffer Queues between 50ms UI frames
@@ -53,17 +56,17 @@ function App() {
 
   // Handle incoming serial data without dropping intermediate samples
   const handleData = useCallback(
-    (data: string) => {
+    (data: string, sampleTimestamp?: number) => {
       logsBuffer.current.push(data);
       if (logsBuffer.current.length > 300) {
         logsBuffer.current = logsBuffer.current.slice(-150);
       }
 
-      const frame = parseSerialPayloadDetailed(data, Date.now());
+      const frame = parseSerialPayloadDetailed(data, sampleTimestamp ?? Date.now());
       if (frame) {
         payloadQueueRef.current.push(frame);
-        if (payloadQueueRef.current.length > 500) {
-          payloadQueueRef.current = payloadQueueRef.current.slice(-250);
+        if (payloadQueueRef.current.length > 512) {
+          payloadQueueRef.current = payloadQueueRef.current.slice(-256);
         }
         logData(frame.values);
       }
@@ -71,7 +74,7 @@ function App() {
     [logData]
   );
 
-  // UI Refresh Loop (20 FPS = 50ms) — drains full batch into Ring-Buffer history
+  // UI Refresh Loop (20 FPS = 50ms) — drains full batch into 128-point power-of-two Ring-Buffer
   useEffect(() => {
     const interval = setInterval(() => {
       if (logsBuffer.current.length > 0) {
@@ -92,9 +95,85 @@ function App() {
 
   useEffect(() => {
     if (status === 'connected') {
-      readLoop(handleData);
+      readLoop((line) => handleData(line));
     }
   }, [status, readLoop, handleData]);
+
+  const startDemoStream = useCallback(
+    (preset: DemoPreset) => {
+      if (demoIntervalRef.current) {
+        clearInterval(demoIntervalRef.current);
+      }
+      setWidgets(new Map());
+      setActiveProtocol(null);
+      payloadQueueRef.current = [];
+
+      if (preset === 'dsp_harmonics') {
+        setWidgetPrefs((prev) => ({ ...prev, Signal_V: 'fft', Vibration_Hz: 'line' }));
+        const dtMs = 25; // f_s = 40 Hz (Nyquist = 20 Hz)
+        let sampleIdx = 0;
+        const baseEpoch = Date.now();
+
+        demoIntervalRef.current = window.setInterval(() => {
+          for (let s = 0; s < 2; s++) {
+            sampleIdx++;
+            const tSec = (sampleIdx * dtMs) / 1000;
+            const syntheticTs = baseEpoch + sampleIdx * dtMs;
+
+            // Dual-tone composite wave: DC = 2.5V, f1 = 4.0 Hz (A1 = 2.0V), f2 = 9.5 Hz (A2 = 0.85V)
+            const sigV =
+              2.5 +
+              2.0 * Math.sin(2 * Math.PI * 4.0 * tSec) +
+              0.85 * Math.sin(2 * Math.PI * 9.5 * tSec);
+
+            // Sub-bin vibration sinusoid: f = 6.25 Hz (A = 1.4)
+            const vib = 1.4 * Math.sin(2 * Math.PI * 6.25 * tSec);
+
+            const payload = {
+              Signal_V: Number(sigV.toFixed(4)),
+              Vibration_Hz: Number(vib.toFixed(4)),
+            };
+            handleData(JSON.stringify(payload), syntheticTs);
+          }
+        }, 50);
+      } else if (preset === 'pid_motor') {
+        setWidgetPrefs((prev) => ({ ...prev, Rotor_rpm: 'line', Setpoint_rpm: 'line' }));
+        let stepCount = 0;
+        let rpm = 0;
+        let velocity = 0;
+        const baseEpoch = Date.now();
+
+        demoIntervalRef.current = window.setInterval(() => {
+          stepCount++;
+          const setpoint = Math.floor(stepCount / 60) % 2 === 0 ? 1200 : 600;
+          const errorVal = setpoint - rpm;
+          velocity = 0.82 * velocity + 0.14 * errorVal;
+          rpm += velocity;
+          const currentMa = Math.max(80, 150 + velocity * 1.8 + rpm * 0.12);
+
+          const payload = {
+            Setpoint_rpm: setpoint,
+            Rotor_rpm: Number(rpm.toFixed(1)),
+            Current_ma: Number(currentMa.toFixed(1)),
+          };
+          handleData(JSON.stringify(payload), baseEpoch + stepCount * 50);
+        }, 50);
+      } else {
+        let tick = 0;
+        const baseEpoch = Date.now();
+        demoIntervalRef.current = window.setInterval(() => {
+          tick++;
+          const t = tick * 0.08;
+          const temp = (26.5 + Math.sin(t) * 3.2).toFixed(2);
+          const humid = (58.0 + Math.cos(t * 0.7) * 8.5).toFixed(2);
+          const vbat = (3.85 + Math.sin(t * 0.2) * 0.15).toFixed(2);
+          const plotterLine = `Temp:${temp}C, Humid:${humid}%, Vbat:${vbat}V, State:ONLINE`;
+          handleData(plotterLine, baseEpoch + tick * 80);
+        }, 80);
+      }
+    },
+    [handleData]
+  );
 
   const toggleDemoMode = () => {
     if (isDemoMode) {
@@ -104,17 +183,14 @@ function App() {
       setActiveProtocol(null);
     } else {
       setIsDemoMode(true);
-      let t = 0;
-      demoIntervalRef.current = window.setInterval(() => {
-        t += 0.1;
-        const fakePayload = {
-          Temperature_C: Number((25 + Math.sin(t) * 5 + (Math.random() - 0.5) * 0.8).toFixed(2)),
-          Humidity_pct: Number((55 + Math.cos(t * 0.5) * 10).toFixed(2)),
-          MotorSpeed_rpm: Number((Math.abs(Math.sin(t * 1.5)) * 100).toFixed(2)),
-        };
-        handleData(JSON.stringify(fakePayload));
-      }, 80);
+      startDemoStream(demoPreset);
     }
+  };
+
+  const handleSelectDemoPreset = (preset: DemoPreset) => {
+    setDemoPreset(preset);
+    setIsDemoMode(true);
+    startDemoStream(preset);
   };
 
   const handleDisconnect = () => {
@@ -188,10 +264,57 @@ function App() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Workspace Area: Data Widgets */}
         <div className="lg:col-span-2 space-y-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-bold text-zinc-100 flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-accent-blue"></span> Dashboard
-            </h2>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <h2 className="text-xl font-bold text-zinc-100 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-accent-blue"></span> Dashboard
+              </h2>
+
+              {/* Hardware Simulation Preset Switcher */}
+              {status !== 'connected' && (
+                <div className="flex items-center gap-1 bg-zinc-900 border border-white/5 rounded-lg p-1 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => handleSelectDemoPreset('dsp_harmonics')}
+                    className={`px-2.5 py-1 rounded-md font-medium flex items-center gap-1.5 transition-colors ${
+                      isDemoMode && demoPreset === 'dsp_harmonics'
+                        ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                    title="4 Hz + 9.5 Hz Dual-Tone Sinusoid @ 40 Hz Sample Rate (FFT Test)"
+                  >
+                    <Waves className="w-3.5 h-3.5" />
+                    DSP FFT (4+9.5Hz)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectDemoPreset('pid_motor')}
+                    className={`px-2.5 py-1 rounded-md font-medium flex items-center gap-1.5 transition-colors ${
+                      isDemoMode && demoPreset === 'pid_motor'
+                        ? 'bg-accent-blue/20 text-accent-blue border border-accent-blue/30'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                    title="2nd-Order Underdamped PID Motor Step Response"
+                  >
+                    <Cpu className="w-3.5 h-3.5" />
+                    PID Step
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectDemoPreset('iot_env')}
+                    className={`px-2.5 py-1 rounded-md font-medium flex items-center gap-1.5 transition-colors ${
+                      isDemoMode && demoPreset === 'iot_env'
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                    title="Arduino Serial Plotter Key:Value Telemetry"
+                  >
+                    <Thermometer className="w-3.5 h-3.5" />
+                    Plotter IoT
+                  </button>
+                </div>
+              )}
+            </div>
 
             <div className="flex items-center gap-2">
               {activeProtocol && (
@@ -227,9 +350,9 @@ function App() {
                     <span className="text-2xl">🔌</span>
                   </div>
                   <h2 className="text-xl font-bold text-zinc-100 mb-2">No Device Connected</h2>
-                  <p className="text-zinc-500 max-w-md mx-auto text-sm">
-                    Click <strong className="text-zinc-300">Connect</strong> to attach your MCU via Web Serial, or launch{' '}
-                    <strong className="text-zinc-300">Demo</strong> to test real-time telemetry.
+                  <p className="text-zinc-500 max-w-md mx-auto text-sm mb-5">
+                    Click <strong className="text-zinc-300">Connect</strong> to attach your MCU via Web Serial, or choose a{' '}
+                    <strong className="text-zinc-300">Simulation Preset</strong> above to test real-time FFT spectral analysis & PID waveforms.
                   </p>
                 </div>
               )}

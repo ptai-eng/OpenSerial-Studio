@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import {
   LineChart,
   Line,
@@ -10,11 +10,15 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { MoreHorizontal } from 'lucide-react';
+import { MoreHorizontal, Pause, Play, Waves } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { DataPoint } from '../../lib/parser';
+import {
+  analyzeSignalAndSpectrum,
+  type WindowFunctionType,
+} from '../../lib/dsp';
 
-export type ChartType = 'line' | 'bar' | 'gauge';
+export type ChartType = 'line' | 'bar' | 'gauge' | 'fft';
 
 interface ChartWidgetProps {
   label: string;
@@ -81,6 +85,13 @@ const GaugeChart = ({ value, ceiling }: { value: number; ceiling: number }) => {
   );
 };
 
+const CHART_MODE_LABELS: Record<ChartType, string> = {
+  line: 'Line (Time)',
+  bar: 'Bar Chart',
+  gauge: 'Gauge Meter',
+  fft: 'FFT Spectrum',
+};
+
 export const ChartWidget: React.FC<ChartWidgetProps> = ({
   label,
   value,
@@ -91,6 +102,12 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
 }) => {
   const [fallbackData, setFallbackData] = useState<DataPoint[]>([]);
   const [showMenu, setShowMenu] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [frozenSnapshot, setFrozenSnapshot] = useState<{
+    value: number;
+    data: DataPoint[];
+  } | null>(null);
+  const [windowType, setWindowType] = useState<WindowFunctionType>('hann');
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -98,7 +115,7 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
     const now = Date.now();
     const d = new Date(now);
     const timeStr = `${String(d.getSeconds()).padStart(2, '0')}.${String(d.getMilliseconds()).padStart(3, '0')}`;
-    setFallbackData((prev) => [...prev, { time: timeStr, timestamp: now, value }].slice(-80));
+    setFallbackData((prev) => [...prev, { time: timeStr, timestamp: now, value }].slice(-128));
   }, [value, history]);
 
   useEffect(() => {
@@ -111,37 +128,107 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const chartData = history && history.length > 0 ? history : fallbackData;
-  const gaugeCeiling = resolveGaugeCeiling(value, chartData);
+  const liveData = history && history.length > 0 ? history : fallbackData;
+  const activeData = isPaused && frozenSnapshot ? frozenSnapshot.data : liveData;
+  const activeValue = isPaused && frozenSnapshot ? frozenSnapshot.value : value;
+
+  const togglePause = () => {
+    if (!isPaused) {
+      setFrozenSnapshot({ value, data: [...liveData] });
+      setIsPaused(true);
+    } else {
+      setIsPaused(false);
+      setFrozenSnapshot(null);
+    }
+  };
+
+  const { metrics, spectrum } = useMemo(
+    () => analyzeSignalAndSpectrum(activeData, windowType),
+    [activeData, windowType]
+  );
+
+  // Exclude DC bin (k=0) from AC spectral bar plot since zero-mean subtraction is applied
+  const acSpectrum = useMemo(
+    () => (spectrum.length > 1 ? spectrum.slice(1) : spectrum),
+    [spectrum]
+  );
+
+  const gaugeCeiling = resolveGaugeCeiling(activeValue, activeData);
 
   return (
-    <div className="bg-zinc-900 border border-white/5 rounded-2xl p-4 flex flex-col h-64 relative">
-      <div className="flex justify-between items-center mb-3 relative">
-        <h3 className="text-zinc-400 text-sm font-medium tracking-wide uppercase truncate pr-2">
-          {label}
-        </h3>
+    <div
+      className={cn(
+        'bg-zinc-900 border rounded-2xl p-4 flex flex-col h-76 relative transition-colors',
+        isPaused ? 'border-amber-400/30' : 'border-white/5'
+      )}
+    >
+      {/* Top Header */}
+      <div className="flex justify-between items-center mb-2 relative gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <h3 className="text-zinc-300 text-sm font-semibold tracking-wide uppercase truncate">
+            {label}
+          </h3>
+          {isPaused && (
+            <span className="px-1.5 py-0.5 text-[10px] font-mono font-bold uppercase rounded bg-amber-400/15 text-amber-300 border border-amber-400/30 shrink-0">
+              HOLD
+            </span>
+          )}
+        </div>
 
-        <div className="flex items-center gap-3 shrink-0">
-          <div className="flex items-baseline gap-1 font-mono">
-            <span className="text-2xl font-bold text-zinc-100">
-              {Number.isInteger(value) ? value : value.toFixed(2)}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-baseline gap-1 font-mono mr-1">
+            <span className="text-xl font-bold text-zinc-100">
+              {Number.isInteger(activeValue) ? activeValue : activeValue.toFixed(2)}
             </span>
             {unit && <span className="text-xs text-accent-blue font-semibold">{unit}</span>}
           </div>
 
+          {/* Quick FFT Toggle Button */}
+          <button
+            type="button"
+            onClick={() => onChangeType(displayType === 'fft' ? 'line' : 'fft')}
+            title={displayType === 'fft' ? 'Switch to Time Domain (Line)' : 'Switch to Frequency Domain (FFT Spectrum)'}
+            className={cn(
+              'px-2 py-1 text-[10px] font-mono font-bold rounded-md border transition-colors flex items-center gap-1',
+              displayType === 'fft'
+                ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+                : 'bg-zinc-800/80 text-zinc-400 border-white/5 hover:text-zinc-200'
+            )}
+          >
+            <Waves className="w-3 h-3" />
+            FFT
+          </button>
+
+          {/* Waveform Pause / Freeze Button */}
+          <button
+            type="button"
+            onClick={togglePause}
+            title={isPaused ? 'Resume live waveform' : 'Freeze waveform for inspection'}
+            className={cn(
+              'p-1.5 rounded-md border transition-colors',
+              isPaused
+                ? 'bg-amber-400/15 text-amber-300 border-amber-400/30'
+                : 'bg-zinc-800/80 text-zinc-400 border-white/5 hover:text-zinc-200'
+            )}
+          >
+            {isPaused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
+          </button>
+
+          {/* Chart Mode Dropdown */}
           <div className="relative" ref={menuRef}>
             <button
               type="button"
               onClick={() => setShowMenu(!showMenu)}
               className="p-1.5 text-zinc-500 hover:text-zinc-200 hover:bg-white/5 rounded-md transition-colors"
+              title="Select visualization mode"
             >
               <MoreHorizontal className="w-4 h-4" />
             </button>
 
             {showMenu && (
-              <div className="absolute right-0 top-full mt-1 w-32 bg-zinc-800 border border-white/10 rounded-lg shadow-xl overflow-hidden z-20">
+              <div className="absolute right-0 top-full mt-1 w-40 bg-zinc-800 border border-white/10 rounded-lg shadow-xl overflow-hidden z-20">
                 <div className="p-1">
-                  {(['line', 'bar', 'gauge'] as ChartType[]).map((t) => (
+                  {(['line', 'bar', 'gauge', 'fft'] as ChartType[]).map((t) => (
                     <button
                       key={t}
                       type="button"
@@ -150,13 +237,13 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
                         setShowMenu(false);
                       }}
                       className={cn(
-                        'w-full text-left px-3 py-2 text-sm rounded-md transition-colors capitalize',
+                        'w-full text-left px-3 py-2 text-xs font-medium rounded-md transition-colors',
                         displayType === t
-                          ? 'bg-accent-blue/10 text-accent-blue'
+                          ? 'bg-accent-blue/15 text-accent-blue'
                           : 'text-zinc-300 hover:bg-white/5 hover:text-white'
                       )}
                     >
-                      {t} Chart
+                      {CHART_MODE_LABELS[t]}
                     </button>
                   ))}
                 </div>
@@ -166,10 +253,50 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
         </div>
       </div>
 
+      {/* FFT Sub-header (Window Function + Dominant Peak Readout) */}
+      {displayType === 'fft' && (
+        <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 mb-2 rounded-lg bg-zinc-950/70 border border-white/5 text-[10px] font-mono">
+          <div className="flex items-center gap-2 text-zinc-400 truncate">
+            <span>
+              f<sub className="text-[8px]">peak</sub>:{' '}
+              <strong className="text-purple-300">{metrics.dominantFreqHz.toFixed(2)} Hz</strong>
+            </span>
+            <span className="text-zinc-600">|</span>
+            <span>
+              |X|: <strong className="text-zinc-200">{metrics.dominantMagnitude.toFixed(2)}</strong>
+            </span>
+            <span className="text-zinc-600 hidden sm:inline">|</span>
+            <span className="hidden sm:inline text-zinc-500">
+              N={metrics.fftSize} (Δf={metrics.freqResolutionHz.toFixed(2)}Hz)
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0">
+            {(['hann', 'hamming', 'rectangular'] as WindowFunctionType[]).map((w) => (
+              <button
+                key={w}
+                type="button"
+                onClick={() => setWindowType(w)}
+                title={`Apply ${w} window function`}
+                className={cn(
+                  'px-1.5 py-0.5 rounded uppercase transition-colors',
+                  windowType === w
+                    ? 'bg-purple-500/25 text-purple-200 border border-purple-400/40'
+                    : 'text-zinc-500 hover:text-zinc-300'
+                )}
+              >
+                {w === 'rectangular' ? 'Rect' : w}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Main Chart Canvas */}
       <div className="flex-1 w-full min-h-0 relative">
         {displayType === 'line' && (
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData}>
+            <LineChart data={activeData}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
               <XAxis dataKey="time" hide />
               <YAxis
@@ -187,7 +314,7 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
                   fontSize: '12px',
                 }}
                 itemStyle={{ color: '#00d4ff' }}
-                animationDuration={100}
+                animationDuration={80}
               />
               <Line
                 type="monotone"
@@ -203,7 +330,7 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
 
         {displayType === 'bar' && (
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData}>
+            <BarChart data={activeData}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
               <XAxis dataKey="time" hide />
               <YAxis
@@ -221,7 +348,7 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
                   fontSize: '12px',
                 }}
                 itemStyle={{ color: '#10b981' }}
-                animationDuration={100}
+                animationDuration={80}
                 cursor={{ fill: 'rgba(255,255,255,0.05)' }}
               />
               <Bar dataKey="value" fill="#10b981" radius={[2, 2, 0, 0]} isAnimationActive={false} />
@@ -229,7 +356,67 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
           </ResponsiveContainer>
         )}
 
-        {displayType === 'gauge' && <GaugeChart value={value} ceiling={gaugeCeiling} />}
+        {displayType === 'gauge' && <GaugeChart value={activeValue} ceiling={gaugeCeiling} />}
+
+        {displayType === 'fft' && (
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={acSpectrum}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+              <XAxis
+                dataKey="frequency"
+                tick={{ fill: '#71717a', fontSize: 9 }}
+                axisLine={false}
+                tickLine={false}
+                tickFormatter={(v) => `${Number(v).toFixed(0)}Hz`}
+              />
+              <YAxis
+                domain={[0, 'auto']}
+                tick={{ fill: '#71717a', fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+                width={38}
+              />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: '#18181b',
+                  borderColor: 'rgba(168,85,247,0.3)',
+                  borderRadius: '8px',
+                  fontSize: '11px',
+                }}
+                labelFormatter={(freq) => `Frequency: ${Number(freq).toFixed(2)} Hz`}
+                formatter={(val, _name, item) => {
+                  const db = item?.payload?.decibels ?? 0;
+                  return [`${Number(val).toFixed(4)} (${db} dB)`, 'Magnitude |X(f)|'];
+                }}
+                animationDuration={80}
+                cursor={{ fill: 'rgba(168,85,247,0.08)' }}
+              />
+              <Bar dataKey="magnitude" fill="#a855f7" radius={[2, 2, 0, 0]} isAnimationActive={false} />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+
+      {/* Bottom Signal Metrology Strip */}
+      <div className="mt-2 pt-2 border-t border-white/5 grid grid-cols-6 gap-1 text-[10px] font-mono text-zinc-500">
+        <div className="truncate" title="Minimum Value">
+          MIN <span className="text-zinc-300">{metrics.min}</span>
+        </div>
+        <div className="truncate" title="Maximum Value">
+          MAX <span className="text-zinc-300">{metrics.max}</span>
+        </div>
+        <div className="truncate" title="Mean / DC Component">
+          AVG <span className="text-zinc-300">{metrics.mean}</span>
+        </div>
+        <div className="truncate" title="Peak-to-Peak Amplitude (Max - Min)">
+          VPP <span className="text-accent-blue">{metrics.vpp}</span>
+        </div>
+        <div className="truncate" title={`Effective Sample Rate (Nyquist: ${metrics.nyquistHz} Hz)`}>
+          Fs <span className="text-accent-green">{metrics.sampleRateHz}Hz</span>
+        </div>
+        <div className="truncate text-right" title="Dominant Spectral Peak Frequency (Parabolic Sub-Bin Interpolation)">
+          Fp <span className="text-purple-300">{metrics.dominantFreqHz}Hz</span>
+        </div>
       </div>
     </div>
   );
