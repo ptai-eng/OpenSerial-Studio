@@ -10,8 +10,13 @@ import { CodeGeneratorModal } from './components/widgets/CodeGeneratorModal';
 import { SettingsModal } from './components/widgets/SettingsModal';
 import { useWebSerial } from './hooks/useWebSerial';
 import { useDataLogger } from './hooks/useDataLogger';
-import { parseSerialPayload, extractWidgetsFromPayload } from './lib/parser';
-import type { WidgetConfig } from './lib/parser';
+import {
+  parseSerialPayloadDetailed,
+  extractWidgetsFromBatch,
+  type WidgetConfig,
+  type ParsedTelemetryFrame,
+  type SerialProtocol,
+} from './lib/parser';
 import { PlusCircle, Trash2 } from 'lucide-react';
 
 interface ControlConfig {
@@ -21,16 +26,17 @@ interface ControlConfig {
 }
 
 function App() {
-  const { status, connect, disconnect, readLoop, write, error } = useWebSerial();
+  const { status, connect, disconnect, readLoop, write, writeBytes, error } = useWebSerial();
   const { isRecording, startRecording, stopRecording, exportCSV, logData, logCount } = useDataLogger();
   const [logs, setLogs] = useState<string[]>([]);
   const [widgets, setWidgets] = useState<Map<string, WidgetConfig>>(new Map());
   const [controls, setControls] = useState<ControlConfig[]>([]);
   const [widgetPrefs, setWidgetPrefs] = useState<Record<string, ChartType>>({});
-  
+  const [activeProtocol, setActiveProtocol] = useState<SerialProtocol | null>(null);
+
   // Form state for new control
   const [newControlId, setNewControlId] = useState('');
-  const [newControlType, setNewControlType] = useState<'button'|'slider'>('button');
+  const [newControlType, setNewControlType] = useState<'button' | 'slider'>('button');
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [isCodeGenOpen, setIsCodeGenOpen] = useState(false);
@@ -41,33 +47,44 @@ function App() {
   const [isDemoMode, setIsDemoMode] = useState(false);
   const demoIntervalRef = useRef<number | null>(null);
 
-  // Throttling buffers
+  // Lossless Ring-Buffer Queues between 50ms UI frames
   const logsBuffer = useRef<string[]>([]);
-  const latestPayload = useRef<Record<string, number | string> | null>(null);
+  const payloadQueueRef = useRef<ParsedTelemetryFrame[]>([]);
 
-  // Handle incoming serial data (Throttled UI updates)
-  const handleData = useCallback((data: string) => {
-    logsBuffer.current.push(data);
-    if (logsBuffer.current.length > 200) logsBuffer.current = logsBuffer.current.slice(-100);
-    
-    const payload = parseSerialPayload(data);
-    if (payload) {
-      latestPayload.current = payload;
-      logData(payload);
-    }
-  }, [logData]);
+  // Handle incoming serial data without dropping intermediate samples
+  const handleData = useCallback(
+    (data: string) => {
+      logsBuffer.current.push(data);
+      if (logsBuffer.current.length > 300) {
+        logsBuffer.current = logsBuffer.current.slice(-150);
+      }
 
-  // UI Refresh Loop (approx 20 FPS = 50ms) to prevent React re-render lag
+      const frame = parseSerialPayloadDetailed(data, Date.now());
+      if (frame) {
+        payloadQueueRef.current.push(frame);
+        if (payloadQueueRef.current.length > 500) {
+          payloadQueueRef.current = payloadQueueRef.current.slice(-250);
+        }
+        logData(frame.values);
+      }
+    },
+    [logData]
+  );
+
+  // UI Refresh Loop (20 FPS = 50ms) — drains full batch into Ring-Buffer history
   useEffect(() => {
     const interval = setInterval(() => {
       if (logsBuffer.current.length > 0) {
-        setLogs(prev => [...prev, ...logsBuffer.current].slice(-100));
+        const incomingLogs = logsBuffer.current;
         logsBuffer.current = [];
+        setLogs((prev) => [...prev, ...incomingLogs].slice(-150));
       }
-      if (latestPayload.current) {
-        const p = latestPayload.current;
-        latestPayload.current = null;
-        setWidgets((currentWidgets) => extractWidgetsFromPayload(p, currentWidgets));
+      if (payloadQueueRef.current.length > 0) {
+        const batch = payloadQueueRef.current;
+        payloadQueueRef.current = [];
+        const lastProto = batch[batch.length - 1].protocol;
+        setActiveProtocol(lastProto);
+        setWidgets((currentWidgets) => extractWidgetsFromBatch(batch, currentWidgets, 128));
       }
     }, 50);
     return () => clearInterval(interval);
@@ -84,66 +101,79 @@ function App() {
       setIsDemoMode(false);
       if (demoIntervalRef.current) clearInterval(demoIntervalRef.current);
       setWidgets(new Map());
+      setActiveProtocol(null);
     } else {
       setIsDemoMode(true);
       let t = 0;
       demoIntervalRef.current = window.setInterval(() => {
         t += 0.1;
         const fakePayload = {
-          Temperature: 25 + Math.sin(t) * 5 + Math.random(),
-          Humidity: 50 + Math.cos(t * 0.5) * 10,
-          MotorSpeed: Math.abs(Math.sin(t * 2)) * 100
+          Temperature_C: Number((25 + Math.sin(t) * 5 + (Math.random() - 0.5) * 0.8).toFixed(2)),
+          Humidity_pct: Number((55 + Math.cos(t * 0.5) * 10).toFixed(2)),
+          MotorSpeed_rpm: Number((Math.abs(Math.sin(t * 1.5)) * 100).toFixed(2)),
         };
-        const jsonStr = JSON.stringify(fakePayload);
-        handleData(jsonStr);
-      }, 100);
+        handleData(JSON.stringify(fakePayload));
+      }, 80);
     }
   };
 
   const handleDisconnect = () => {
     disconnect();
     setWidgets(new Map());
+    setActiveProtocol(null);
   };
 
   const handleAddControl = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newControlId.trim()) return;
-    setControls([...controls, { id: newControlId, label: newControlId, type: newControlType }]);
+    const cleaned = newControlId.trim();
+    if (!cleaned) return;
+    if (controls.some((c) => c.id === cleaned)) {
+      setNewControlId('');
+      return;
+    }
+    setControls([...controls, { id: cleaned, label: cleaned, type: newControlType }]);
     setNewControlId('');
     inputRef.current?.focus();
   };
 
   const handleDeleteControl = (id: string) => {
-    setControls(controls.filter(c => c.id !== id));
+    setControls(controls.filter((c) => c.id !== id));
   };
 
   const handleWrite = (data: string) => {
-    // Echo TX to terminal logs
-    logsBuffer.current.push(`> ${data}`);
-    
+    const cleanEcho = data.replace(/\r?\n$/, '');
+    logsBuffer.current.push(`> ${cleanEcho}`);
+
     if (!isDemoMode) {
       write(data);
     }
   };
 
+  const handleWriteBytes = (bytes: Uint8Array, displayHex: string) => {
+    logsBuffer.current.push(`> [HEX] ${displayHex}`);
+    if (!isDemoMode) {
+      writeBytes(bytes);
+    }
+  };
+
   return (
     <DashboardLayout>
-      <CodeGeneratorModal 
-        isOpen={isCodeGenOpen} 
-        onClose={() => setIsCodeGenOpen(false)} 
+      <CodeGeneratorModal
+        isOpen={isCodeGenOpen}
+        onClose={() => setIsCodeGenOpen(false)}
         widgetKeys={Array.from(widgets.keys())}
         controls={controls}
       />
-      <SettingsModal 
-        isOpen={isSettingsOpen} 
-        onClose={() => setIsSettingsOpen(false)} 
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
         currentBaudRate={baudRate}
         onSaveBaudRate={setBaudRate}
       />
-      <Header 
-        status={status} 
-        onConnect={() => connect(baudRate)} 
-        onDisconnect={handleDisconnect} 
+      <Header
+        status={status}
+        onConnect={() => connect(baudRate)}
+        onDisconnect={handleDisconnect}
         onOpenCodeGen={() => setIsCodeGenOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onDemo={toggleDemoMode}
@@ -154,36 +184,55 @@ function App() {
         onExportCSV={exportCSV}
         logCount={logCount}
       />
-      
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
         {/* Workspace Area: Data Widgets */}
         <div className="lg:col-span-2 space-y-6">
-          <h2 className="text-xl font-bold text-zinc-100 flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-accent-blue"></span> Dashboard
-          </h2>
-          
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-bold text-zinc-100 flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-accent-blue"></span> Dashboard
+            </h2>
+
+            <div className="flex items-center gap-2">
+              {activeProtocol && (
+                <span className="px-2.5 py-1 rounded-full text-[11px] font-mono font-semibold uppercase tracking-wider bg-accent-blue/10 text-accent-blue border border-accent-blue/25">
+                  Protocol: {activeProtocol.toUpperCase()}
+                </span>
+              )}
+              <span className="px-2.5 py-1 rounded-full text-[11px] font-mono text-zinc-400 bg-zinc-900 border border-white/5">
+                {baudRate} bps
+              </span>
+            </div>
+          </div>
+
           {widgets.size === 0 ? (
             <div className="bg-zinc-900 border border-white/5 rounded-2xl p-8 flex flex-col items-center justify-center text-center min-h-[300px]">
-               {status === 'connected' || isDemoMode ? (
-                  <div>
-                    <div className="w-16 h-16 rounded-full bg-zinc-800/50 flex items-center justify-center mx-auto mb-4 border border-accent-blue/20">
-                       <span className="text-accent-blue animate-pulse">JSON</span>
-                    </div>
-                     <h2 className="text-xl font-bold text-zinc-100 mb-2">Listening for Data...</h2>
-                     <p className="text-zinc-400 max-w-sm mx-auto">
-                       {isDemoMode ? "Generating fake JSON data..." : "Send a JSON payload via UART to automatically generate widgets."}
-                     </p>
+              {status === 'connected' || isDemoMode ? (
+                <div>
+                  <div className="w-16 h-16 rounded-full bg-zinc-800/50 flex items-center justify-center mx-auto mb-4 border border-accent-blue/20">
+                    <span className="text-xs font-mono font-bold text-accent-blue animate-pulse">
+                      UART
+                    </span>
                   </div>
-               ) : (
-                  <div>
-                    <div className="w-16 h-16 rounded-full bg-zinc-800/50 flex items-center justify-center mx-auto mb-4 border border-white/5">
-                      <span className="text-2xl">🔌</span>
-                    </div>
-                    <h2 className="text-xl font-bold text-zinc-100 mb-2">No Device Connected</h2>
-                    <p className="text-zinc-500 max-w-sm mx-auto">Click Connect to select your MCU and start receiving data.</p>
+                  <h2 className="text-xl font-bold text-zinc-100 mb-2">Listening for Telemetry...</h2>
+                  <p className="text-zinc-400 max-w-md mx-auto text-sm">
+                    {isDemoMode
+                      ? 'Streaming synthetic telemetry frames...'
+                      : 'Send JSON ({"Temp":25.4}), Serial Plotter (Temp:25.4,Humid:60), or CSV (25.4,60.0) over UART.'}
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <div className="w-16 h-16 rounded-full bg-zinc-800/50 flex items-center justify-center mx-auto mb-4 border border-white/5">
+                    <span className="text-2xl">🔌</span>
                   </div>
-               )}
+                  <h2 className="text-xl font-bold text-zinc-100 mb-2">No Device Connected</h2>
+                  <p className="text-zinc-500 max-w-md mx-auto text-sm">
+                    Click <strong className="text-zinc-300">Connect</strong> to attach your MCU via Web Serial, or launch{' '}
+                    <strong className="text-zinc-300">Demo</strong> to test real-time telemetry.
+                  </p>
+                </div>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -191,13 +240,14 @@ function App() {
                 if (widget.type === 'chart') {
                   const currentDisplayType = widgetPrefs[widget.id] || widget.displayType || 'line';
                   return (
-                    <ChartWidget 
-                      key={widget.id} 
-                      label={widget.label} 
-                      value={widget.value as number} 
-                      unit={widget.unit} 
+                    <ChartWidget
+                      key={widget.id}
+                      label={widget.label}
+                      value={widget.value as number}
+                      unit={widget.unit}
+                      history={widget.history}
                       displayType={currentDisplayType}
-                      onChangeType={(type) => setWidgetPrefs(p => ({...p, [widget.id]: type}))}
+                      onChangeType={(type) => setWidgetPrefs((p) => ({ ...p, [widget.id]: type }))}
                     />
                   );
                 }
@@ -209,46 +259,55 @@ function App() {
 
         {/* Sidebar: Controls & Tools */}
         <div className="space-y-6">
-          
           {/* Virtual Control Panel */}
           <div className="bg-zinc-900 border border-white/5 rounded-2xl overflow-hidden">
-            <div className="px-5 py-4 border-b border-white/5 bg-zinc-900/50">
+            <div className="px-5 py-4 border-b border-white/5 bg-zinc-900/50 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-zinc-300">Virtual Controls (TX)</h3>
+              <span className="text-[11px] font-mono text-zinc-500">JSON + LF (\n)</span>
             </div>
-            
+
             <div className="p-5 space-y-4">
               {/* Form to add new control */}
-              <form onSubmit={handleAddControl} className="flex gap-2 mb-6">
-                <input 
-                  type="text" 
+              <form onSubmit={handleAddControl} className="flex gap-2 mb-4">
+                <input
+                  type="text"
                   ref={inputRef}
                   value={newControlId}
-                  onChange={(e) => setNewControlId(e.target.value.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, ''))}
-                  placeholder="Var Name (e.g. LED_1)" 
+                  onChange={(e) =>
+                    setNewControlId(e.target.value.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, ''))
+                  }
+                  placeholder="Var Name (e.g. LED_1, PWM_1)"
                   className="flex-1 w-0 min-w-0 bg-zinc-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-accent-blue"
                 />
-                <select 
+                <select
                   value={newControlType}
-                  onChange={(e) => setNewControlType(e.target.value as 'button'|'slider')}
+                  onChange={(e) => setNewControlType(e.target.value as 'button' | 'slider')}
                   className="bg-zinc-950 border border-white/10 rounded-lg px-2 py-2 text-sm text-zinc-100 focus:outline-none focus:border-accent-blue"
                 >
                   <option value="button">Btn</option>
                   <option value="slider">Sld</option>
                 </select>
-                <button type="submit" className="bg-accent-blue/10 text-accent-blue p-2 rounded-lg hover:bg-accent-blue/20 transition-colors border border-accent-blue/20">
+                <button
+                  type="submit"
+                  className="bg-accent-blue/10 text-accent-blue p-2 rounded-lg hover:bg-accent-blue/20 transition-colors border border-accent-blue/20"
+                  title="Add Virtual Control"
+                >
                   <PlusCircle className="w-5 h-5" />
                 </button>
               </form>
 
               {/* Render Controls */}
               {controls.length === 0 && (
-                <p className="text-xs text-zinc-500 italic text-center py-4">No controls added. Create one above to send JSON to your board.</p>
+                <p className="text-xs text-zinc-500 italic text-center py-4">
+                  No controls added. Create one above to transmit commands to your MCU.
+                </p>
               )}
-              
+
               <div className="space-y-3">
                 {controls.map((ctrl) => (
                   <div key={ctrl.id} className="relative group">
-                    <button 
+                    <button
+                      type="button"
                       onClick={() => handleDeleteControl(ctrl.id)}
                       className="absolute right-0 top-0 translate-x-1/2 -translate-y-1/2 p-1.5 bg-zinc-900 border border-white/10 rounded-full text-zinc-500 hover:text-red-400 hover:border-red-400/50 opacity-0 group-hover:opacity-100 transition-all z-10"
                       title="Delete Control"
@@ -266,8 +325,13 @@ function App() {
             </div>
           </div>
 
-          <TerminalLog logs={logs} onClear={() => setLogs([])} />
-          
+          <TerminalLog
+            logs={logs}
+            onClear={() => setLogs([])}
+            onSend={handleWrite}
+            onSendBytes={handleWriteBytes}
+          />
+
           {error && (
             <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 text-sm text-red-500">
               <strong className="font-semibold block mb-1">Connection Error</strong>

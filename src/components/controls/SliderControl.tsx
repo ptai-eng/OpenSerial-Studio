@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Minus, Plus, SlidersHorizontal } from 'lucide-react';
 
 interface SliderControlProps {
   id: string;
@@ -9,32 +10,113 @@ interface SliderControlProps {
   onSend: (payload: string) => void;
 }
 
-export const SliderControl: React.FC<SliderControlProps> = ({ 
-  id, 
-  label, 
-  min = 0, 
-  max = 255, 
-  step = 1,
-  onSend 
+export const SliderControl: React.FC<SliderControlProps> = ({
+  id,
+  label,
+  min: initialMin = 0,
+  max: initialMax = 255,
+  step: initialStep = 1,
+  onSend,
 }) => {
-  const [value, setValue] = useState<number>(min);
+  const [min, setMin] = useState<number>(initialMin);
+  const [max, setMax] = useState<number>(initialMax);
+  const [step, setStep] = useState<number>(initialStep);
+  const [value, setValue] = useState<number>(initialMin);
+  const [showRangeConfig, setShowRangeConfig] = useState(false);
 
-  // Send data when user stops dragging to avoid flooding the serial port
-  const handleMouseUp = () => {
-    onSend(JSON.stringify({ [id]: value }) + '\\n');
+  const sendValue = (nextVal: number) => {
+    const clamped = Math.min(Math.max(nextVal, min), max);
+    const rounded = Number(clamped.toFixed(4));
+    setValue(rounded);
+    // Send newline-terminated JSON payload (\n = 0x0A) to hardware
+    onSend(JSON.stringify({ [id]: rounded }) + '\n');
+  };
+
+  const handleRelease = () => {
+    sendValue(value);
   };
 
   return (
-    <div className="bg-zinc-900 border border-white/5 rounded-2xl p-5 flex flex-col gap-4">
+    <div className="bg-zinc-900 border border-white/5 rounded-2xl p-4 flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <div className="flex flex-col">
-          <span className="text-zinc-400 text-xs font-semibold uppercase tracking-wider">{label}</span>
+          <span className="text-zinc-300 text-xs font-semibold uppercase tracking-wider">{label}</span>
           <span className="text-zinc-500 font-mono text-xs">{id}</span>
         </div>
-        <div className="text-2xl font-bold text-accent-blue">{value}</div>
+
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => sendValue(value - step)}
+            className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-white/5 transition-colors"
+            title={`Decrease by ${step}`}
+          >
+            <Minus className="w-3.5 h-3.5" />
+          </button>
+          <span className="min-w-[3.5rem] text-center text-lg font-bold font-mono text-accent-blue">
+            {value}
+          </span>
+          <button
+            type="button"
+            onClick={() => sendValue(value + step)}
+            className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-white/5 transition-colors"
+            title={`Increase by ${step}`}
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowRangeConfig(!showRangeConfig)}
+            className={`p-1.5 rounded-lg border transition-colors ml-1 ${
+              showRangeConfig
+                ? 'bg-accent-blue/15 border-accent-blue/40 text-accent-blue'
+                : 'bg-zinc-800/60 border-white/5 text-zinc-500 hover:text-zinc-300'
+            }`}
+            title="Configure Min / Max / Step"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
-      
-      <div className="relative w-full h-6 flex items-center">
+
+      {showRangeConfig && (
+        <div className="grid grid-cols-3 gap-2 pt-1 pb-2 border-y border-white/5 text-xs font-mono">
+          <div>
+            <label className="text-[10px] text-zinc-500 block mb-1">MIN</label>
+            <input
+              type="number"
+              value={min}
+              onChange={(e) => setMin(Number(e.target.value))}
+              className="w-full bg-zinc-950 border border-white/10 rounded px-2 py-1 text-zinc-200 focus:outline-none focus:border-accent-blue"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] text-zinc-500 block mb-1">MAX</label>
+            <input
+              type="number"
+              value={max}
+              onChange={(e) => setMax(Number(e.target.value))}
+              className="w-full bg-zinc-950 border border-white/10 rounded px-2 py-1 text-zinc-200 focus:outline-none focus:border-accent-blue"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] text-zinc-500 block mb-1">STEP</label>
+            <input
+              type="number"
+              step="any"
+              min="0.001"
+              value={step}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                if (v > 0) setStep(v);
+              }}
+              className="w-full bg-zinc-950 border border-white/10 rounded px-2 py-1 text-zinc-200 focus:outline-none focus:border-accent-blue"
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="relative w-full h-5 flex items-center">
         <input
           type="range"
           min={min}
@@ -42,13 +124,14 @@ export const SliderControl: React.FC<SliderControlProps> = ({
           step={step}
           value={value}
           onChange={(e) => setValue(parseFloat(e.target.value))}
-          onMouseUp={handleMouseUp}
-          onTouchEnd={handleMouseUp}
+          onMouseUp={handleRelease}
+          onTouchEnd={handleRelease}
           className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-accent-blue hover:accent-white transition-all focus:outline-none"
         />
       </div>
-      <div className="flex justify-between text-xs text-zinc-600 font-mono">
+      <div className="flex justify-between text-[11px] text-zinc-600 font-mono">
         <span>{min}</span>
+        <span>step: {step}</span>
         <span>{max}</span>
       </div>
     </div>
