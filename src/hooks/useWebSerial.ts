@@ -13,7 +13,7 @@ export function useWebSerial() {
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const [error, setError] = useState<string | null>(null);
   const portRef = useRef<any | null>(null);
-  const readerRef = useRef<ReadableStreamDefaultReader<string> | null>(null);
+  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const writerRef = useRef<WritableStreamDefaultWriter<Uint8Array> | null>(null);
   const keepReadingRef = useRef<boolean>(true);
   const encoderRef = useRef<TextEncoder>(new TextEncoder());
@@ -124,50 +124,66 @@ export function useWebSerial() {
     await writeBytes(encoded);
   }, [writeBytes]);
 
-  const readLoop = useCallback(async (onDataReceived: (data: string) => void) => {
-    if (!portRef.current || status !== 'connected') return;
+  const readLoop = useCallback(
+    async (
+      onDataReceived: (data: string) => void,
+      onRawData?: (chunk: Uint8Array) => void
+    ) => {
+      if (!portRef.current || status !== 'connected') return;
 
-    try {
-      const textDecoder = new TextDecoderStream();
-      portRef.current.readable!.pipeTo(textDecoder.writable).catch(() => {});
-      readerRef.current = textDecoder.readable.getReader();
+      try {
+        const reader: ReadableStreamDefaultReader<Uint8Array> = portRef.current.readable!.getReader();
+        readerRef.current = reader;
 
-      let buffer = '';
+        const decoder = new TextDecoder('utf-8', { fatal: false, ignoreBOM: true });
+        let buffer = '';
 
-      while (keepReadingRef.current && portRef.current) {
-        const { value, done } = await readerRef.current.read();
+        while (keepReadingRef.current && portRef.current) {
+          const { value, done } = await reader.read();
 
-        if (done) break;
-        if (value) {
-          buffer += value;
-          const lines = buffer.split(/\r?\n/);
-          buffer = lines.pop() || '';
+          if (done) break;
+          if (value && value.length > 0) {
+            // 1. Emit raw byte chunk before any UTF-8 decoding to preserve binary protocols
+            if (onRawData) {
+              try {
+                onRawData(value);
+              } catch (rawErr) {
+                console.error('Error in onRawData callback:', rawErr);
+              }
+            }
 
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (trimmed) onDataReceived(trimmed);
+            // 2. Decode streaming UTF-8 text line buffer
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split(/\r?\n/);
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (trimmed) onDataReceived(trimmed);
+            }
+          }
+        }
+      } catch (err: any) {
+        const msg = String(err?.message || '');
+        if (err?.name === 'NetworkError' || msg.includes('The device has been lost')) {
+          console.warn('Device unexpectedly disconnected');
+          await disconnect();
+        } else {
+          console.error('Serial Read Error:', err);
+          setError(msg || 'Error reading data');
+        }
+      } finally {
+        if (readerRef.current) {
+          try {
+            readerRef.current.releaseLock();
+          } catch {
+            // Ignore if already unlocked
           }
         }
       }
-    } catch (err: any) {
-      const msg = String(err?.message || '');
-      if (err?.name === 'NetworkError' || msg.includes('The device has been lost')) {
-        console.warn('Device unexpectedly disconnected');
-        await disconnect();
-      } else {
-        console.error('Serial Read Error:', err);
-        setError(msg || 'Error reading data');
-      }
-    } finally {
-      if (readerRef.current) {
-        try {
-          readerRef.current.releaseLock();
-        } catch {
-          // Ignore if already unlocked
-        }
-      }
-    }
-  }, [status, disconnect]);
+    },
+    [status, disconnect]
+  );
 
   return {
     status,

@@ -24,6 +24,9 @@ export interface SignalMetrics {
   dominantFreqHz: number;
   dominantMagnitude: number;
   fftSize: number;
+  jitterMs: number;
+  jitterPercent: number;
+  isJitterHigh: boolean;
 }
 
 /**
@@ -171,12 +174,30 @@ export function naiveDFT(
   return { real, imag };
 }
 
+export interface SamplingTimingEstimate {
+  sampleRateHz: number;
+  medianDtMs: number;
+  meanDtMs: number;
+  jitterMs: number;
+  jitterPercent: number;
+  isJitterHigh: boolean;
+}
+
 /**
- * Estimates effective sampling rate f_s (Hz) from timestamped data points.
- * Uses median inter-sample interval to resist occasional serial burst outliers.
+ * Robustly estimates sampling rate and inter-sample timing jitter from timestamped history.
+ * A high jitter percentage (> 20%) warns that serial polling or USB latency is non-deterministic.
  */
-export function estimateSampleRateHz(history: DataPoint[], fallbackHz = 20): number {
-  if (history.length < 3) return fallbackHz;
+export function estimateSamplingTiming(history: DataPoint[], fallbackHz = 20): SamplingTimingEstimate {
+  if (history.length < 3) {
+    return {
+      sampleRateHz: fallbackHz,
+      medianDtMs: 1000 / fallbackHz,
+      meanDtMs: 1000 / fallbackHz,
+      jitterMs: 0,
+      jitterPercent: 0,
+      isJitterHigh: false,
+    };
+  }
 
   const deltas: number[] = [];
   for (let i = 1; i < history.length; i++) {
@@ -188,24 +209,53 @@ export function estimateSampleRateHz(history: DataPoint[], fallbackHz = 20): num
 
   if (deltas.length === 0) {
     const totalSpanMs = history[history.length - 1].timestamp - history[0].timestamp;
-    if (totalSpanMs > 0) {
-      return Number((((history.length - 1) * 1000) / totalSpanMs).toFixed(2));
-    }
-    return fallbackHz;
+    const estHz =
+      totalSpanMs > 0 ? Number((((history.length - 1) * 1000) / totalSpanMs).toFixed(2)) : fallbackHz;
+    return {
+      sampleRateHz: estHz,
+      medianDtMs: 1000 / estHz,
+      meanDtMs: 1000 / estHz,
+      jitterMs: 0,
+      jitterPercent: 0,
+      isJitterHigh: false,
+    };
   }
 
-  deltas.sort((a, b) => a - b);
-  const mid = Math.floor(deltas.length / 2);
+  const sorted = [...deltas].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
   const medianDtMs =
-    deltas.length % 2 !== 0 ? deltas[mid] : 0.5 * (deltas[mid - 1] + deltas[mid]);
+    sorted.length % 2 !== 0 ? sorted[mid] : 0.5 * (sorted[mid - 1] + sorted[mid]);
 
-  // Also check mean interval across the window for batch-tick arrivals
-  const totalSpanMs = history[history.length - 1].timestamp - history[0].timestamp;
-  const meanDtMs = totalSpanMs > 0 ? totalSpanMs / (history.length - 1) : medianDtMs;
+  const sumDt = deltas.reduce((acc, v) => acc + v, 0);
+  const meanDtMs = sumDt / deltas.length;
   const effectiveDtMs = meanDtMs > 0 ? meanDtMs : medianDtMs;
+  const sampleRateHz = effectiveDtMs > 0 ? Number((1000 / effectiveDtMs).toFixed(2)) : fallbackHz;
 
-  if (effectiveDtMs <= 0) return fallbackHz;
-  return Number((1000 / effectiveDtMs).toFixed(2));
+  let varianceSum = 0;
+  for (const dt of deltas) {
+    const diff = dt - meanDtMs;
+    varianceSum += diff * diff;
+  }
+  const jitterMs = Number(Math.sqrt(varianceSum / deltas.length).toFixed(2));
+  const jitterPercent = effectiveDtMs > 0 ? Number(((jitterMs / effectiveDtMs) * 100).toFixed(1)) : 0;
+  const isJitterHigh = deltas.length >= 8 && jitterPercent > 20.0;
+
+  return {
+    sampleRateHz,
+    medianDtMs: Number(medianDtMs.toFixed(2)),
+    meanDtMs: Number(meanDtMs.toFixed(2)),
+    jitterMs,
+    jitterPercent,
+    isJitterHigh,
+  };
+}
+
+/**
+ * Estimates effective sampling rate f_s (Hz) from timestamped data points.
+ * Uses median inter-sample interval to resist occasional serial burst outliers.
+ */
+export function estimateSampleRateHz(history: DataPoint[], fallbackHz = 20): number {
+  return estimateSamplingTiming(history, fallbackHz).sampleRateHz;
 }
 
 /**
@@ -277,6 +327,9 @@ export function analyzeSignalAndSpectrum(
         dominantFreqHz: 0,
         dominantMagnitude: 0,
         fftSize: 0,
+        jitterMs: 0,
+        jitterPercent: 0,
+        isJitterHigh: false,
       },
       spectrum: [],
     };
@@ -307,7 +360,8 @@ export function analyzeSignalAndSpectrum(
   }
   const stdDev = Math.sqrt(varianceSum / nSamples);
 
-  const sampleRateHz = overrideSampleRateHz ?? estimateSampleRateHz(history);
+  const timing = estimateSamplingTiming(history);
+  const sampleRateHz = overrideSampleRateHz ?? timing.sampleRateHz;
   const nyquistHz = Number((sampleRateHz / 2).toFixed(2));
 
   if (nSamples < 8) {
@@ -326,6 +380,9 @@ export function analyzeSignalAndSpectrum(
         dominantFreqHz: 0,
         dominantMagnitude: 0,
         fftSize: 0,
+        jitterMs: timing.jitterMs,
+        jitterPercent: timing.jitterPercent,
+        isJitterHigh: timing.isJitterHigh,
       },
       spectrum: [],
     };
@@ -412,6 +469,9 @@ export function analyzeSignalAndSpectrum(
       dominantFreqHz: dominant.frequencyHz,
       dominantMagnitude: dominant.magnitude,
       fftSize,
+      jitterMs: timing.jitterMs,
+      jitterPercent: timing.jitterPercent,
+      isJitterHigh: timing.isJitterHigh,
     },
     spectrum,
   };

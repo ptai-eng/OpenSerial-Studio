@@ -411,8 +411,26 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
         <div className="truncate" title="Peak-to-Peak Amplitude (Max - Min)">
           VPP <span className="text-accent-blue">{metrics.vpp}</span>
         </div>
-        <div className="truncate" title={`Effective Sample Rate (Nyquist: ${metrics.nyquistHz} Hz)`}>
-          Fs <span className="text-accent-green">{metrics.sampleRateHz}Hz</span>
+        <div
+          className="truncate"
+          title={`Effective Sample Rate (Nyquist: ${metrics.nyquistHz} Hz)${
+            metrics.isJitterHigh
+              ? ` — ⚠️ High Inter-Sample Jitter: ${metrics.jitterPercent}% (σ=${metrics.jitterMs}ms)`
+              : ''
+          }`}
+        >
+          Fs{' '}
+          <span className={metrics.isJitterHigh ? 'text-amber-400 font-semibold' : 'text-accent-green'}>
+            {metrics.sampleRateHz}Hz
+          </span>
+          {metrics.isJitterHigh && (
+            <span
+              className="text-[10px] text-amber-400 font-mono ml-0.5"
+              title={`Uneven packet intervals detected: jitter ${metrics.jitterPercent}% (σ=${metrics.jitterMs}ms)`}
+            >
+              ⚠️
+            </span>
+          )}
         </div>
         <div className="truncate text-right" title="Dominant Spectral Peak Frequency (Parabolic Sub-Bin Interpolation)">
           Fp <span className="text-purple-300">{metrics.dominantFreqHz}Hz</span>

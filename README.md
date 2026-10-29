@@ -43,13 +43,23 @@ Whether you are debugging a PID controller, monitoring unlimited environmental s
 
 ### 4. Advanced Data Logger
 - **One-click Recording:** Record all incoming hardware telemetry in the background, fully independent of the UI chart history.
+- **Memory-Safe Ring-Buffer:** Bounded to 100,000 samples with automatic FIFO eviction to prevent browser memory exhaustion during multi-hour logging sessions.
 - **CSV Export:** Export thousands of data points instantly to `.csv` for Excel analysis, graphing, or machine learning datasets.
 
 ### 5. Auto Code Generator
-- **Multi-Platform Support:** Click the "Generate Code" button to automatically get production-ready boilerplates for **Arduino**, **STM32 (HAL)**, and **MicroPython (ESP32/Raspberry Pi Pico)**.
-- **Smart Pin Mapping (Arduino):** Instead of generating generic code, the software now intelligently assigns real hardware pins based on your UI setup:
-  - **Sensors (Charts/Gauge):** Automatically mapped to Analog pins (A0, A1, A2...) using \`analogRead()\` to fetch real-world data.
-  - **Controls (Buttons/Sliders):** Automatically mapped to Digital/PWM pins (2, 3...) using \`digitalWrite()\` or \`analogWrite()\` for real-world actuation.
+- **Multi-Platform Support:** Click the "Generate Code" button to automatically get production-ready boilerplates for **Arduino (C++)**, **Zero-Library Arduino Plotter**, **STM32 (HAL C with UART DMA & `-u _printf_float` guidance)**, and **MicroPython (ESP32 / Raspberry Pi Pico)**.
+- **Smart Pin Mapping:**
+  - **Arduino (Uno/Nano):** Sliders are strictly routed to true hardware timer PWM pins (`D3, D5, D6, D9, D10, D11`), while buttons route to standard digital pins (`D2, D4, D7, D8, D12, D13`).
+  - **ESP32 & Pico:** MicroPython ADC inputs use ADC1 pins (`GPIO 32..39`) to prevent driver panics when Wi-Fi is active, with GP26..GP28 mapping on RP2040 Pico.
+
+### 6. DSP Metrology & Real-Time FFT
+- **In-place Radix-2 Cooley-Tukey FFT:** High-speed spectral decomposition with Hann, Hamming, and Rectangular windowing functions.
+- **Sub-Bin Parabolic Interpolation:** Lagrange quadratic 3-point peak interpolation for sub-Hz frequency and magnitude estimation.
+- **Timing Jitter Detection:** Measures inter-sample interval deviation ($\sigma$) and warns (`⚠️ Jitter > 20%`) when OS USB polling or MCU software delays cause non-deterministic sampling.
+
+### 7. Workspace Persistence & Profile Sharing
+- **Local Persistence:** Preserves baud rate, custom controls, and chart preferences automatically in browser storage.
+- **Export/Import Profiles:** Share hardware control profiles and dashboard layouts via `.json` configuration files.
 
 ## 🚀 Getting Started
 

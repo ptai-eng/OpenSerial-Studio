@@ -5,6 +5,16 @@ export interface ControlSpec {
 
 export type CodegenPlatform = 'arduino' | 'plotter' | 'stm32' | 'micropython';
 
+// Valid Arduino Uno/Nano PWM-capable timer pins: D3, D5, D6, D9, D10, D11
+export const ARDUINO_PWM_PINS = [3, 5, 6, 9, 10, 11] as const;
+// Valid Arduino Uno/Nano standard digital output pins (excluding Serial D0/D1)
+export const ARDUINO_DIGITAL_PINS = [2, 4, 7, 8, 12, 13] as const;
+
+// Safe ADC1 pins on ESP32 (GPIO 32..39) — safe to use with active Wi-Fi (avoids ADC2 conflict)
+export const ESP32_ADC1_PINS = [32, 33, 34, 35, 36, 39] as const;
+// Analog ADC pins on Raspberry Pi Pico RP2040/RP2350
+export const PICO_ADC_PINS = [26, 27, 28] as const;
+
 function sanitizeIdentifier(raw: string): string {
   const cleaned = raw.replace(/[^a-zA-Z0-9_]/g, '_').replace(/^[0-9]/, '_$&');
   return cleaned || 'channel';
@@ -42,9 +52,19 @@ const unsigned long SEND_INTERVAL_MS = 100; // 10 Hz telemetry rate
 
   code += `// --- Hardware Pin Mapping ---\n`;
   if (hasRx) {
-    controls.forEach((c, i) => {
+    let pwmIdx = 0;
+    let digIdx = 0;
+    controls.forEach((c) => {
       const ident = sanitizeIdentifier(c.id);
-      code += `const int ${ident}_PIN = ${i + 2}; // ${c.type === 'button' ? 'Digital OUT' : 'PWM OUT'} for "${c.id}"\n`;
+      if (c.type === 'slider') {
+        const pin = ARDUINO_PWM_PINS[pwmIdx % ARDUINO_PWM_PINS.length];
+        pwmIdx++;
+        code += `const int ${ident}_PIN = ${pin}; // PWM OUT (Timer pin D${pin}) for "${c.id}"\n`;
+      } else {
+        const pin = ARDUINO_DIGITAL_PINS[digIdx % ARDUINO_DIGITAL_PINS.length];
+        digIdx++;
+        code += `const int ${ident}_PIN = ${pin}; // Digital OUT (D${pin}) for "${c.id}"\n`;
+      }
     });
   }
 
@@ -154,9 +174,19 @@ const unsigned long SEND_INTERVAL_MS = 50; // 20 Hz fast plotter stream
   if (hasRx) {
     code += `static char rxBuffer[128];\n`;
     code += `static uint8_t rxIndex = 0;\n\n`;
-    controls.forEach((c, i) => {
+    let pwmIdx = 0;
+    let digIdx = 0;
+    controls.forEach((c) => {
       const ident = sanitizeIdentifier(c.id);
-      code += `const int ${ident}_PIN = ${i + 2};\n`;
+      if (c.type === 'slider') {
+        const pin = ARDUINO_PWM_PINS[pwmIdx % ARDUINO_PWM_PINS.length];
+        pwmIdx++;
+        code += `const int ${ident}_PIN = ${pin}; // PWM pin D${pin} for "${c.id}"\n`;
+      } else {
+        const pin = ARDUINO_DIGITAL_PINS[digIdx % ARDUINO_DIGITAL_PINS.length];
+        digIdx++;
+        code += `const int ${ident}_PIN = ${pin}; // Digital pin D${pin} for "${c.id}"\n`;
+      }
     });
   }
 
@@ -237,9 +267,13 @@ export function generateSTM32Code(widgets: string[], controls: ControlSpec[]): s
   const txWidgets = hasTx ? widgets : ['Temperature', 'Voltage_V'];
 
   let code = `/*
- * OpenSerial Studio v2.0 — STM32 HAL Firmware Template
+ * OpenSerial Studio v2.1.1 — STM32 HAL Firmware Template
  * Target: STM32F1 / STM32F4 / STM32G4 / STM32H7 (STM32CubeIDE)
  * UART Peripheral: huart2 (115200-8-N-1, DMA / Interrupt RX enabled)
+ *
+ * NOTE FOR FLOAT PRINTING (%.2f):
+ * In STM32CubeIDE / GCC ARM toolchain, float support in snprintf is disabled by default to save flash.
+ * Enable it via: Project Properties -> C/C++ Build -> Settings -> Tool Settings -> MCU GCC Linker -> Miscellaneous -> Linker flags: add "-u _printf_float"
  */
 
 #include "main.h"
@@ -253,7 +287,7 @@ extern UART_HandleTypeDef huart2;
 #define UART_TX_BUF_SIZE 256
 
 static uint8_t rxDmaBuffer[UART_RX_BUF_SIZE];
-static char rxCommandLine[UART_RX_BUF_SIZE];
+static volatile char rxCommandLine[UART_RX_BUF_SIZE];
 static volatile uint8_t rxFrameReady = 0;
 static uint32_t lastTelemetryTick = 0;
 
@@ -262,6 +296,8 @@ static uint32_t lastTelemetryTick = 0;
  */
 void OpenSerial_Init(void) {
     HAL_UARTEx_ReceiveToIdle_DMA(&huart2, rxDmaBuffer, UART_RX_BUF_SIZE);
+    // Ignore half-transfer DMA interrupts so callback only triggers on idle line or complete frame
+    __HAL_DMA_DISABLE_IT(huart2.hdmarx, DMA_IT_HT);
 }
 
 /**
@@ -269,11 +305,16 @@ void OpenSerial_Init(void) {
  */
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size) {
     if (huart->Instance == USART2) {
-        uint16_t copyLen = (Size < UART_RX_BUF_SIZE - 1) ? Size : (UART_RX_BUF_SIZE - 1);
-        memcpy(rxCommandLine, rxDmaBuffer, copyLen);
-        rxCommandLine[copyLen] = '\\0';
-        rxFrameReady = 1;
+        // Prevent race condition: only write if previous frame was consumed by main task
+        if (!rxFrameReady) {
+            uint16_t copyLen = (Size < UART_RX_BUF_SIZE - 1) ? Size : (UART_RX_BUF_SIZE - 1);
+            memcpy((void *)rxCommandLine, rxDmaBuffer, copyLen);
+            rxCommandLine[copyLen] = '\\0';
+            rxFrameReady = 1;
+        }
+        // Re-arm DMA receive to idle line and keep HT interrupt disabled
         HAL_UARTEx_ReceiveToIdle_DMA(&huart2, rxDmaBuffer, UART_RX_BUF_SIZE);
+        __HAL_DMA_DISABLE_IT(huart2.hdmarx, DMA_IT_HT);
     }
 }
 
@@ -309,10 +350,14 @@ void OpenSerial_Task(void) {
 `;
 
   if (hasRx) {
-    code += `    // --- 1. Handle Incoming Commands from Web Dashboard ---\n`;
+    code += `    // --- 1. Handle Incoming Commands from Web Dashboard (Thread-safe snapshot) ---\n`;
     code += `    if (rxFrameReady) {\n`;
+    code += `        char localBuf[UART_RX_BUF_SIZE];\n`;
+    code += `        __disable_irq();\n`;
+    code += `        memcpy(localBuf, (const void *)rxCommandLine, sizeof(localBuf));\n`;
     code += `        rxFrameReady = 0;\n`;
-    code += `        OpenSerial_ProcessRx(rxCommandLine);\n`;
+    code += `        __enable_irq();\n`;
+    code += `        OpenSerial_ProcessRx(localBuf);\n`;
     code += `    }\n\n`;
   }
 
@@ -344,7 +389,7 @@ export function generateMicroPythonCode(widgets: string[], controls: ControlSpec
   const txWidgets = hasTx ? widgets : ['Temperature', 'Humidity'];
 
   let code = `"""
-OpenSerial Studio v2.0 — Auto-Generated MicroPython Firmware
+OpenSerial Studio v2.1.1 — Auto-Generated MicroPython Firmware
 Target: ESP32 / Raspberry Pi Pico (RP2040 / RP2350)
 Protocol: JSON over USB CDC / UART (115200 bps)
 """
@@ -356,6 +401,9 @@ import select
 import sys
 
 # --- Hardware Pin Configuration ---
+# Notes:
+# - ESP32: Uses ADC1 pins (GPIO 32..39) so ADC reads remain functional while Wi-Fi is active.
+# - RP2040 Pico: Uses analog GP26 (ADC0), GP27 (ADC1), GP28 (ADC2).
 `;
 
   if (hasRx) {
@@ -373,7 +421,9 @@ import sys
   if (hasTx || !hasRx) {
     txWidgets.forEach((w, i) => {
       const ident = sanitizeIdentifier(w);
-      code += `${ident}_adc = machine.ADC(machine.Pin(${26 + (i % 3)})) # GP26..GP28 on Pico, or GPIO32+ on ESP32\n`;
+      const espPin = ESP32_ADC1_PINS[i % ESP32_ADC1_PINS.length];
+      const picoPin = PICO_ADC_PINS[i % PICO_ADC_PINS.length];
+      code += `${ident}_adc = machine.ADC(machine.Pin(${espPin})) # ESP32 ADC1 GPIO${espPin} (or machine.Pin(${picoPin}) on RP2040 Pico)\n`;
     });
   }
 

@@ -9,7 +9,26 @@ function escapeCsvCell(val: unknown): string {
   return str;
 }
 
-export function useDataLogger() {
+export const DEFAULT_MAX_LOG_RECORDS = 100_000;
+
+export interface DataLoggerOptions {
+  maxRecords?: number;
+}
+
+export function appendDataLoggerRecord(
+  buffer: Array<Record<string, unknown>>,
+  data: Record<string, unknown>,
+  maxRecords: number = DEFAULT_MAX_LOG_RECORDS,
+  timestamp?: string
+): void {
+  if (buffer.length >= maxRecords) {
+    buffer.shift();
+  }
+  buffer.push({ _timestamp: timestamp ?? new Date().toISOString(), ...data });
+}
+
+export function useDataLogger(options?: DataLoggerOptions) {
+  const maxRecords = options?.maxRecords ?? DEFAULT_MAX_LOG_RECORDS;
   const [isRecording, setIsRecording] = useState(false);
   const [logCount, setLogCount] = useState(0);
   const loggedDataRef = useRef<Array<Record<string, unknown>>>([]);
@@ -31,14 +50,17 @@ export function useDataLogger() {
     setLogCount(0);
   }, []);
 
-  const logData = useCallback((data: Record<string, unknown>) => {
-    if (isRecordingRef.current) {
-      loggedDataRef.current.push({ _timestamp: new Date().toISOString(), ...data });
-      if (loggedDataRef.current.length === 1 || loggedDataRef.current.length % 10 === 0) {
-        setLogCount(loggedDataRef.current.length);
+  const logData = useCallback(
+    (data: Record<string, unknown>) => {
+      if (isRecordingRef.current) {
+        appendDataLoggerRecord(loggedDataRef.current, data, maxRecords);
+        if (loggedDataRef.current.length === 1 || loggedDataRef.current.length % 10 === 0) {
+          setLogCount(loggedDataRef.current.length);
+        }
       }
-    }
-  }, []);
+    },
+    [maxRecords]
+  );
 
   const exportCSV = useCallback(() => {
     if (loggedDataRef.current.length === 0) return;

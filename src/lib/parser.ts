@@ -356,10 +356,10 @@ export function extractWidgetsFromPayload(
 }
 
 /**
- * Converts a UTF-8 string into space-separated uppercase hexadecimal byte pairs.
+ * Converts a string or raw Uint8Array into space-separated uppercase hexadecimal byte pairs.
  */
-export function toHexString(input: string): string {
-  const bytes = new TextEncoder().encode(input);
+export function toHexString(input: string | Uint8Array): string {
+  const bytes = typeof input === 'string' ? new TextEncoder().encode(input) : input;
   return Array.from(bytes)
     .map((b) => b.toString(16).toUpperCase().padStart(2, '0'))
     .join(' ');

@@ -17,23 +17,33 @@ import {
   type ParsedTelemetryFrame,
   type SerialProtocol,
 } from './lib/parser';
-import { PlusCircle, Trash2, Waves, Cpu, Thermometer } from 'lucide-react';
-
-interface ControlConfig {
-  id: string;
-  type: 'button' | 'slider';
-  label: string;
-}
+import {
+  loadWorkspaceFromStorage,
+  saveWorkspaceToStorage,
+  serializeWorkspaceProfile,
+  parseWorkspaceProfile,
+  type ControlConfig,
+} from './lib/workspace';
+import { PlusCircle, Trash2, Waves, Cpu, Thermometer, RotateCcw } from 'lucide-react';
 
 export type DemoPreset = 'dsp_harmonics' | 'pid_motor' | 'iot_env';
 
 function App() {
   const { status, connect, disconnect, readLoop, write, writeBytes, error } = useWebSerial();
-  const { isRecording, startRecording, stopRecording, exportCSV, logData, logCount } = useDataLogger();
+  const { isRecording, startRecording, stopRecording, clearLog, exportCSV, logData, logCount } =
+    useDataLogger();
+
+  // Initialize workspace state from localStorage (v2.2 persistence)
+  const initialProfile = useRef(loadWorkspaceFromStorage());
+
   const [logs, setLogs] = useState<string[]>([]);
   const [widgets, setWidgets] = useState<Map<string, WidgetConfig>>(new Map());
-  const [controls, setControls] = useState<ControlConfig[]>([]);
-  const [widgetPrefs, setWidgetPrefs] = useState<Record<string, ChartType>>({});
+  const [controls, setControls] = useState<ControlConfig[]>(
+    () => initialProfile.current?.controls ?? []
+  );
+  const [widgetPrefs, setWidgetPrefs] = useState<Record<string, ChartType>>(
+    () => initialProfile.current?.widgetPrefs ?? {}
+  );
   const [activeProtocol, setActiveProtocol] = useState<SerialProtocol | null>(null);
 
   // Form state for new control
@@ -43,12 +53,26 @@ function App() {
 
   const [isCodeGenOpen, setIsCodeGenOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [baudRate, setBaudRate] = useState<number>(115200);
+  const [baudRate, setBaudRate] = useState<number>(
+    () => initialProfile.current?.baudRate ?? 115200
+  );
 
   // Demo mode & preset
   const [isDemoMode, setIsDemoMode] = useState(false);
-  const [demoPreset, setDemoPreset] = useState<DemoPreset>('dsp_harmonics');
+  const [demoPreset, setDemoPreset] = useState<DemoPreset>(
+    () => initialProfile.current?.demoPreset ?? 'dsp_harmonics'
+  );
   const demoIntervalRef = useRef<number | null>(null);
+
+  // Persist workspace settings whenever baudRate, controls, widgetPrefs, or demoPreset change
+  useEffect(() => {
+    saveWorkspaceToStorage({
+      baudRate,
+      controls,
+      widgetPrefs,
+      demoPreset,
+    });
+  }, [baudRate, controls, widgetPrefs, demoPreset]);
 
   // Lossless Ring-Buffer Queues between 50ms UI frames
   const logsBuffer = useRef<string[]>([]);
@@ -109,7 +133,7 @@ function App() {
       payloadQueueRef.current = [];
 
       if (preset === 'dsp_harmonics') {
-        setWidgetPrefs((prev) => ({ ...prev, Signal_V: 'fft', Vibration_Hz: 'line' }));
+        setWidgetPrefs((prev) => ({ ...prev, Signal_V: 'fft', Vibration_g: 'line' }));
         const dtMs = 25; // f_s = 40 Hz (Nyquist = 20 Hz)
         let sampleIdx = 0;
         const baseEpoch = Date.now();
@@ -126,12 +150,12 @@ function App() {
               2.0 * Math.sin(2 * Math.PI * 4.0 * tSec) +
               0.85 * Math.sin(2 * Math.PI * 9.5 * tSec);
 
-            // Sub-bin vibration sinusoid: f = 6.25 Hz (A = 1.4)
+            // Sub-bin vibration sinusoid: f = 6.25 Hz (A = 1.4 g)
             const vib = 1.4 * Math.sin(2 * Math.PI * 6.25 * tSec);
 
             const payload = {
               Signal_V: Number(sigV.toFixed(4)),
-              Vibration_Hz: Number(vib.toFixed(4)),
+              Vibration_g: Number(vib.toFixed(4)),
             };
             handleData(JSON.stringify(payload), syntheticTs);
           }
@@ -179,8 +203,7 @@ function App() {
     if (isDemoMode) {
       setIsDemoMode(false);
       if (demoIntervalRef.current) clearInterval(demoIntervalRef.current);
-      setWidgets(new Map());
-      setActiveProtocol(null);
+      // v2.2: Preserve captured waveforms on Stop Demo so the engineer can inspect FFT/metrics or export CSV
     } else {
       setIsDemoMode(true);
       startDemoStream(demoPreset);
@@ -195,8 +218,42 @@ function App() {
 
   const handleDisconnect = () => {
     disconnect();
+    // v2.2: Keep captured widgets on screen after disconnect for post-capture analysis & CSV export
+  };
+
+  const handleResetDashboard = () => {
     setWidgets(new Map());
     setActiveProtocol(null);
+    payloadQueueRef.current = [];
+    clearLog();
+  };
+
+  const handleExportProfile = () => {
+    const json = serializeWorkspaceProfile({
+      baudRate,
+      controls,
+      widgetPrefs,
+      demoPreset,
+    });
+    const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `openserial_profile_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportProfile = (rawJson: string): boolean => {
+    const profile = parseWorkspaceProfile(rawJson);
+    if (!profile) return false;
+    setBaudRate(profile.baudRate);
+    setControls(profile.controls);
+    setWidgetPrefs(profile.widgetPrefs);
+    if (profile.demoPreset) setDemoPreset(profile.demoPreset);
+    return true;
   };
 
   const handleAddControl = (e: React.FormEvent) => {
@@ -245,6 +302,8 @@ function App() {
         onClose={() => setIsSettingsOpen(false)}
         currentBaudRate={baudRate}
         onSaveBaudRate={setBaudRate}
+        onExportProfile={handleExportProfile}
+        onImportProfile={handleImportProfile}
       />
       <Header
         status={status}
@@ -317,6 +376,17 @@ function App() {
             </div>
 
             <div className="flex items-center gap-2">
+              {widgets.size > 0 && (
+                <button
+                  type="button"
+                  onClick={handleResetDashboard}
+                  title="Clear captured waveforms and reset widgets"
+                  className="px-2.5 py-1 rounded-full text-[11px] font-mono text-zinc-400 hover:text-zinc-100 bg-zinc-900 hover:bg-zinc-800 border border-white/10 flex items-center gap-1 transition-colors"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  Clear
+                </button>
+              )}
               {activeProtocol && (
                 <span className="px-2.5 py-1 rounded-full text-[11px] font-mono font-semibold uppercase tracking-wider bg-accent-blue/10 text-accent-blue border border-accent-blue/25">
                   Protocol: {activeProtocol.toUpperCase()}
@@ -440,7 +510,14 @@ function App() {
                     {ctrl.type === 'button' ? (
                       <ButtonControl id={ctrl.id} label={ctrl.label} onSend={handleWrite} />
                     ) : (
-                      <SliderControl id={ctrl.id} label={ctrl.label} onSend={handleWrite} />
+                      <SliderControl
+                        id={ctrl.id}
+                        label={ctrl.label}
+                        min={ctrl.min}
+                        max={ctrl.max}
+                        step={ctrl.step}
+                        onSend={handleWrite}
+                      />
                     )}
                   </div>
                 ))}
