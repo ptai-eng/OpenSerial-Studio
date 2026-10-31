@@ -21,7 +21,7 @@ export interface McpToolDefinition {
 export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
   {
     name: 'serial_list_ports',
-    description: 'Lists available physical COM/TTY serial ports (with VID/PID) and virtual simulation channels (sim://dsp_harmonics, sim://pid_motor, sim://iot_env).',
+    description: 'Lists available physical COM/TTY serial ports (with VID/PID) and virtual simulation channels (sim://dsp_harmonics, sim://pid_motor, sim://iot_env, sim://raymarcher_gpu).',
     inputSchema: {
       type: 'object',
       properties: {},
@@ -35,7 +35,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
       properties: {
         port: {
           type: 'string',
-          description: 'Port name (e.g. "COM3", "/dev/ttyUSB0", or virtual "sim://dsp_harmonics", "sim://pid_motor", "sim://iot_env")',
+          description: 'Port name (e.g. "COM3", "/dev/ttyUSB0", or virtual "sim://dsp_harmonics", "sim://pid_motor", "sim://iot_env", "sim://raymarcher_gpu")',
         },
         baudRate: {
           type: 'number',

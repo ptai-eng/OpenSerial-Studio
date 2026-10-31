@@ -4,6 +4,7 @@ import { Header } from './components/layout/Header';
 import { TerminalLog, type TerminalLogItem } from './components/widgets/TerminalLog';
 import { ChartWidget } from './components/widgets/ChartWidget';
 import { TextWidget } from './components/widgets/TextWidget';
+import { CanvasWidget } from './components/widgets/CanvasWidget';
 import { ButtonControl } from './components/controls/ButtonControl';
 import { SliderControl } from './components/controls/SliderControl';
 import { CodeGeneratorModal } from './components/widgets/CodeGeneratorModal';
@@ -27,7 +28,13 @@ import {
   type DemoPreset,
   type ControlConfig,
 } from './lib/workspace';
-import { PlusCircle, Trash2, Waves, Cpu, Thermometer, RotateCcw } from 'lucide-react';
+import {
+  parseBinaryPixelChunk,
+  extractPixelsFromJson,
+  raymarchPixel,
+  type PixelData,
+} from './lib/framebuffer';
+import { PlusCircle, Trash2, Waves, Cpu, Thermometer, RotateCcw, Sparkles, Boxes } from 'lucide-react';
 
 export type { DemoPreset };
 
@@ -90,8 +97,21 @@ function App() {
   const payloadQueueRef = useRef<ParsedTelemetryFrame[]>([]);
   const latestRawChunkRef = useRef<Uint8Array | null>(null);
 
+  // Framebuffer 3D Graphics State (v3.1)
+  const incomingPixelsBufferRef = useRef<PixelData[]>([]);
+  const [incomingPixelsBatch, setIncomingPixelsBatch] = useState<PixelData[]>([]);
+  const [showCanvasWidget, setShowCanvasWidget] = useState<boolean>(
+    () => initialProfile?.demoPreset === 'raymarcher_gpu'
+  );
+  const demoCamRotRef = useRef<{ x: number; y: number; light: number }>({ x: 18, y: 45, light: 1.0 });
+
   const handleRawChunk = useCallback((chunk: Uint8Array) => {
     latestRawChunkRef.current = chunk;
+    const pxs = parseBinaryPixelChunk(chunk);
+    if (pxs.length > 0) {
+      incomingPixelsBufferRef.current.push(...pxs);
+      setShowCanvasWidget(true);
+    }
   }, []);
 
   // Handle incoming serial data without dropping intermediate samples
@@ -109,6 +129,20 @@ function App() {
       }
 
       if (!isMcpTx) {
+        // Detect JSON Pixel telemetry (e.g. from bitluni or debug scripts)
+        if (data.startsWith('{') && data.endsWith('}')) {
+          try {
+            const parsedObj = JSON.parse(data);
+            const pxs = extractPixelsFromJson(parsedObj);
+            if (pxs.length > 0) {
+              incomingPixelsBufferRef.current.push(...pxs);
+              setShowCanvasWidget(true);
+            }
+          } catch {
+            // Ignore parse errors
+          }
+        }
+
         const frame = parseSerialPayloadDetailed(data, sampleTimestamp ?? Date.now());
         if (frame) {
           payloadQueueRef.current.push(frame);
@@ -138,6 +172,11 @@ function App() {
         setWidgets((currentWidgets) =>
           extractWidgetsFromBatch(batch, currentWidgets, bufferSizeRef.current)
         );
+      }
+      if (incomingPixelsBufferRef.current.length > 0) {
+        const drained = incomingPixelsBufferRef.current;
+        incomingPixelsBufferRef.current = [];
+        setIncomingPixelsBatch(drained);
       }
     }, 50);
     return () => clearInterval(interval);
@@ -212,6 +251,68 @@ function App() {
           };
           handleData(JSON.stringify(payload), baseEpoch + stepCount * 50);
         }, 50);
+      } else if (preset === 'raymarcher_gpu') {
+        setShowCanvasWidget(true);
+        setWidgetPrefs((prev) => ({ ...prev, GPU_FPS: 'line', Active_Cores: 'gauge', Scanline: 'line' }));
+
+        // Inject default 3D camera controls
+        setControls((prev) => {
+          const ids = new Set(prev.map((c) => c.id));
+          const next = [...prev];
+          if (!ids.has('cam_rot_y')) {
+            next.push({ id: 'cam_rot_y', type: 'slider', label: 'Camera Yaw (°)', min: 0, max: 360, step: 5 });
+          }
+          if (!ids.has('cam_rot_x')) {
+            next.push({ id: 'cam_rot_x', type: 'slider', label: 'Camera Pitch (°)', min: -90, max: 90, step: 5 });
+          }
+          if (!ids.has('light_val')) {
+            next.push({ id: 'light_val', type: 'slider', label: 'Light Intensity (%)', min: 10, max: 100, step: 5 });
+          }
+          return next;
+        });
+
+        let currentScanY = 0;
+        const baseEpoch = Date.now();
+        let tick = 0;
+
+        demoIntervalRef.current = window.setInterval(() => {
+          tick++;
+          const linesPerTick = 3;
+          const w = 160;
+          const h = 120;
+          const pixelsBatch: PixelData[] = [];
+
+          // Slowly orbit camera
+          demoCamRotRef.current.y = (demoCamRotRef.current.y + 0.6) % 360;
+
+          for (let l = 0; l < linesPerTick; l++) {
+            const y = currentScanY;
+            currentScanY = (currentScanY + 1) % h;
+            for (let x = 0; x < w; x++) {
+              pixelsBatch.push(
+                raymarchPixel(
+                  x,
+                  y,
+                  w,
+                  h,
+                  demoCamRotRef.current.x,
+                  demoCamRotRef.current.y,
+                  demoCamRotRef.current.light
+                )
+              );
+            }
+          }
+
+          incomingPixelsBufferRef.current.push(...pixelsBatch);
+
+          const companionPayload = {
+            t_us: baseEpoch * 1000 + tick * 35000,
+            GPU_FPS: 28.5,
+            Active_Cores: 64,
+            Scanline: currentScanY,
+          };
+          handleData(JSON.stringify(companionPayload), baseEpoch + tick * 35);
+        }, 35);
       } else {
         let tick = 0;
         const baseEpoch = Date.now();
@@ -322,7 +423,17 @@ function App() {
       rawBytes: new TextEncoder().encode(data),
     });
 
-    if (!isDemoMode) {
+    if (isDemoMode) {
+      try {
+        const parsed = JSON.parse(cleanEcho);
+        if (typeof parsed.cam_rot_x === 'number') demoCamRotRef.current.x = parsed.cam_rot_x;
+        if (typeof parsed.cam_rot_y === 'number') demoCamRotRef.current.y = parsed.cam_rot_y;
+        if (typeof parsed.light_intensity === 'number') demoCamRotRef.current.light = parsed.light_intensity;
+        if (typeof parsed.light_val === 'number') demoCamRotRef.current.light = parsed.light_val / 100.0;
+      } catch {
+        // Not JSON
+      }
+    } else {
       write(data);
     }
   };
@@ -424,11 +535,38 @@ function App() {
                     <Thermometer className="w-3.5 h-3.5" />
                     Plotter IoT
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectDemoPreset('raymarcher_gpu')}
+                    className={`px-2.5 py-1 rounded-md font-medium flex items-center gap-1.5 transition-colors ${
+                      isDemoMode && demoPreset === 'raymarcher_gpu'
+                        ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                    title="64-Core RISC-V 3D Raymarching Cluster Simulator"
+                  >
+                    <Boxes className="w-3.5 h-3.5 text-cyan-400" />
+                    3D GPU
+                  </button>
                 </div>
               )}
             </div>
 
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowCanvasWidget((v) => !v)}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-mono flex items-center gap-1 transition-colors border ${
+                  showCanvasWidget
+                    ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/35 shadow-sm'
+                    : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-400 border-white/10'
+                }`}
+                title="Toggle GPU Framebuffer Display"
+              >
+                <Sparkles className="w-3 h-3 text-cyan-400" />
+                Canvas {showCanvasWidget ? 'ON' : 'OFF'}
+              </button>
+
               {widgets.size > 0 && (
                 <button
                   type="button"
@@ -453,6 +591,13 @@ function App() {
               </span>
             </div>
           </div>
+
+          {/* 3D Framebuffer Canvas Widget */}
+          {showCanvasWidget && (
+            <div className="mb-2">
+              <CanvasWidget incomingPixels={incomingPixelsBatch} />
+            </div>
+          )}
 
           {widgets.size === 0 ? (
             <div className="bg-zinc-900 border border-white/5 rounded-2xl p-8 flex flex-col items-center justify-center text-center min-h-[300px]">

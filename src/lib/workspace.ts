@@ -1,5 +1,5 @@
 export type ChartType = 'line' | 'bar' | 'gauge' | 'fft';
-export type DemoPreset = 'dsp_harmonics' | 'pid_motor' | 'iot_env';
+export type DemoPreset = 'dsp_harmonics' | 'pid_motor' | 'iot_env' | 'raymarcher_gpu';
 
 export interface ControlConfig {
   id: string;
@@ -103,7 +103,8 @@ export function parseWorkspaceProfile(rawJson: string): WorkspaceProfile | null 
     const demoPreset =
       obj.demoPreset === 'dsp_harmonics' ||
       obj.demoPreset === 'pid_motor' ||
-      obj.demoPreset === 'iot_env'
+      obj.demoPreset === 'iot_env' ||
+      obj.demoPreset === 'raymarcher_gpu'
         ? obj.demoPreset
         : undefined;
 

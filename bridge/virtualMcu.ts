@@ -1,11 +1,13 @@
 /**
- * Closed-Loop Virtual MCU Simulator for OpenSerial-Studio v3.0.0
+ * Closed-Loop Virtual MCU Simulator for OpenSerial-Studio v3.1.0
  * 
  * Simulates microcontrollers streaming real-time hardware telemetry with microsecond timebase (t_us),
- * while responding dynamically in real time to incoming control commands (PID tuning, frequency modulation, PWM).
+ * while responding dynamically in real time to incoming control commands (PID tuning, frequency modulation, PWM, 3D Raymarching).
  */
 
-export type SimulationScenario = 'dsp_harmonics' | 'pid_motor' | 'iot_env';
+import { raymarchPixel } from '../src/lib/framebuffer.ts';
+
+export type SimulationScenario = 'dsp_harmonics' | 'pid_motor' | 'iot_env' | 'raymarcher_gpu';
 
 export interface VirtualMcuOptions {
   scenario?: SimulationScenario;
@@ -60,13 +62,27 @@ export class VirtualMcuSimulator {
     relay1: 0,
   };
 
+  // --- Scenario 4: 64-Core RISC-V 3D Raymarching GPU ---
+  public gpu = {
+    width: 160,
+    height: 120,
+    rotX: 0.0,
+    rotY: 0.0,
+    lightIntensity: 1.0,
+    currentScanY: 0,
+    get cam_rot_x() { return this.rotX; },
+    set cam_rot_x(v: number) { this.rotX = v; },
+    get cam_rot_y() { return this.rotY; },
+    set cam_rot_y(v: number) { this.rotY = v; },
+  };
+
   constructor(optionsOrScenario: VirtualMcuOptions | SimulationScenario = 'dsp_harmonics', sampleRateHz?: number) {
     if (typeof optionsOrScenario === 'string') {
       this.scenario = optionsOrScenario;
-      this.sampleRateHz = sampleRateHz ?? (this.scenario === 'dsp_harmonics' ? 50 : 20);
+      this.sampleRateHz = sampleRateHz ?? (this.scenario === 'dsp_harmonics' ? 50 : this.scenario === 'raymarcher_gpu' ? 40 : 20);
     } else {
       this.scenario = optionsOrScenario.scenario ?? 'dsp_harmonics';
-      this.sampleRateHz = sampleRateHz ?? optionsOrScenario.sampleRateHz ?? (this.scenario === 'dsp_harmonics' ? 50 : 20);
+      this.sampleRateHz = sampleRateHz ?? optionsOrScenario.sampleRateHz ?? (this.scenario === 'dsp_harmonics' ? 50 : this.scenario === 'raymarcher_gpu' ? 40 : 20);
       this.onTxData = optionsOrScenario.onTxData;
     }
     this.baseEpochMicros = Date.now() * 1000;
@@ -155,6 +171,12 @@ export class VirtualMcuSimulator {
     // IoT parameters
     if (typeof cmd.FAN_PWM === 'number') this.iot.fanPwm = Math.max(0, Math.min(255, cmd.FAN_PWM));
     if (typeof cmd.RELAY_1 === 'number') this.iot.relay1 = cmd.RELAY_1 ? 1 : 0;
+
+    // GPU Raymarcher parameters
+    if (typeof cmd.cam_rot_x === 'number') this.gpu.rotX = cmd.cam_rot_x;
+    if (typeof cmd.cam_rot_y === 'number') this.gpu.rotY = cmd.cam_rot_y;
+    if (typeof cmd.light_intensity === 'number') this.gpu.lightIntensity = cmd.light_intensity;
+    if (typeof cmd.light_val === 'number') this.gpu.lightIntensity = cmd.light_val / 100.0;
   }
 
   /**
@@ -167,6 +189,7 @@ export class VirtualMcuSimulator {
     const tSec = this.tickCount * dt;
 
     let payloadString = '';
+    let rawPayloadBytes: Uint8Array | null = null;
 
     if (this.scenario === 'dsp_harmonics') {
       // Dual-tone harmonic signal with microsecond hardware timebase
@@ -205,9 +228,53 @@ export class VirtualMcuSimulator {
         Current_mA: Number(currentMa.toFixed(1)),
       };
       payloadString = JSON.stringify(payload);
+    } else if (this.scenario === 'raymarcher_gpu') {
+      // 64-Core RISC-V Raymarching Cluster
+      const w = this.gpu.width;
+      const h = this.gpu.height;
+      const linesPerTick = 2; // Render 2 scanlines per simulation step
+      const totalPixels = w * linesPerTick;
+      const packetLen = 8; // [0xAA, 0x55, X, Y, R, G, B, CORE_ID]
+
+      const pixelBytes = new Uint8Array(totalPixels * packetLen);
+      let byteIdx = 0;
+
+      for (let l = 0; l < linesPerTick; l++) {
+        const y = this.gpu.currentScanY;
+        this.gpu.currentScanY = (this.gpu.currentScanY + 1) % h;
+
+        for (let x = 0; x < w; x++) {
+          const px = raymarchPixel(
+            x,
+            y,
+            w,
+            h,
+            this.gpu.rotX,
+            this.gpu.rotY,
+            this.gpu.lightIntensity
+          );
+
+          pixelBytes[byteIdx++] = 0xaa;
+          pixelBytes[byteIdx++] = 0x55;
+          pixelBytes[byteIdx++] = px.x;
+          pixelBytes[byteIdx++] = px.y;
+          pixelBytes[byteIdx++] = px.r;
+          pixelBytes[byteIdx++] = px.g;
+          pixelBytes[byteIdx++] = px.b;
+          pixelBytes[byteIdx++] = px.coreId;
+        }
+      }
+
+      rawPayloadBytes = pixelBytes;
+      const companionJson = {
+        t_us: currentMicros,
+        GPU_FPS: 24.0,
+        Active_Cores: 64,
+        Scanline: this.gpu.currentScanY,
+      };
+      payloadString = JSON.stringify(companionJson);
     } else {
       // IoT Environmental Station (Plotter Key:Value format)
-      // Cooling effect if FAN_PWM is high
       const cooling = (this.iot.fanPwm / 255.0) * 3.5;
       const targetTemp = 24.0 + Math.sin(tSec * 0.1) * 2.0 - cooling;
       this.iot.tempC = 0.95 * this.iot.tempC + 0.05 * targetTemp;
@@ -219,8 +286,16 @@ export class VirtualMcuSimulator {
 
     if (this.onTxData) {
       const lineWithEnding = `${payloadString}\n`;
-      const rawBytes = new TextEncoder().encode(lineWithEnding);
-      this.onTxData(lineWithEnding, rawBytes);
+      const textBytes = new TextEncoder().encode(lineWithEnding);
+      let combinedBytes = textBytes;
+
+      if (rawPayloadBytes) {
+        combinedBytes = new Uint8Array(rawPayloadBytes.length + textBytes.length);
+        combinedBytes.set(rawPayloadBytes, 0);
+        combinedBytes.set(textBytes, rawPayloadBytes.length);
+      }
+
+      this.onTxData(lineWithEnding, combinedBytes);
     }
   }
 }

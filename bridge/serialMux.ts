@@ -154,6 +154,7 @@ export class SerialMultiplexer {
       { path: 'sim://dsp_harmonics', manufacturer: 'OpenSerial Simulation', isVirtual: true },
       { path: 'sim://pid_motor', manufacturer: 'OpenSerial Simulation', isVirtual: true },
       { path: 'sim://iot_env', manufacturer: 'OpenSerial Simulation', isVirtual: true },
+      { path: 'sim://raymarcher_gpu', manufacturer: 'OpenSerial Simulation', isVirtual: true },
     ];
 
     try {

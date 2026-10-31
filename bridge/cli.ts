@@ -13,7 +13,7 @@ Usage:
 Options:
   --port <path>          Physical serial port (e.g. COM3, /dev/ttyUSB0)
   --baud <rate>          Baud rate (default: 115200)
-  --sim <scenario>       Virtual MCU simulator (dsp_harmonics, pid_motor, iot_env)
+  --sim <scenario>       Virtual MCU simulator (dsp_harmonics, pid_motor, iot_env, raymarcher_gpu)
   --ws-port <port>       WebSocket server port (default: 8765)
   --no-mcp               Disable stdio MCP server (WebSocket bridge only)
   --help, -h             Show this help message
