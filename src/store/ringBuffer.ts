@@ -34,6 +34,10 @@ export class RingBuffer<T> {
     return this.count;
   }
 
+  public get length(): number {
+    return this.count;
+  }
+
   public get(index: number): T | undefined {
     if (index < 0 || index >= this.count) return undefined;
     const actualIdx = (this.head + index) % this.capacity;
