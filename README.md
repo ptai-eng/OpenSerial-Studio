@@ -335,4 +335,4 @@ $ npm test
 
 ## 📄 License
 
-This project is licensed under the **MIT License**. Created by [**Phát Tài (ptai-eng)**](https://github.com/ptai-eng).
+This project is licensed under the **MIT License**.
