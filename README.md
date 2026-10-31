@@ -9,7 +9,7 @@
     <a href="https://react.dev/"><img src="https://img.shields.io/badge/React-19.2-61DAFB.svg?logo=react" alt="React 19"></a>
     <a href="https://vitejs.dev/"><img src="https://img.shields.io/badge/Vite-8.1-646CFF.svg?logo=vite" alt="Vite 8"></a>
     <a href="https://tailwindcss.com/"><img src="https://img.shields.io/badge/TailwindCSS-v4.3-38B2AC.svg?logo=tailwind-css" alt="Tailwind CSS v4"></a>
-    <a href="https://github.com/ptai-eng/OpenSerial-Studio/releases"><img src="https://img.shields.io/badge/Release-v3.1.1-purple.svg" alt="Release v3.1.1"></a>
+    <a href="https://github.com/ptai-eng/OpenSerial-Studio/releases"><img src="https://img.shields.io/badge/Release-v3.2.0-cyan.svg" alt="Release v3.2.0"></a>
     <a href="https://modelcontextprotocol.io/"><img src="https://img.shields.io/badge/MCP-Compatible-green.svg" alt="MCP Compatible"></a>
     <a href="https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps"><img src="https://img.shields.io/badge/PWA-Ready-5A0FC8.svg?logo=pwa" alt="PWA Ready"></a>
     <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
@@ -27,6 +27,7 @@
 1. **Zero-Install Web Serial Mode:** Connects directly from modern browsers (Chrome, Edge, Opera) to hardware COM ports via the native Web Serial API without requiring local installations or custom drivers.
 2. **Local Bridge Daemon & MCP Server Mode (`v3.0+`):** Runs a lightweight local daemon multiplexing physical serial ports or closed-loop virtual simulators (`dsp_harmonics`, `pid_motor`, `iot_env`, `raymarcher_gpu`) to both the Web Dashboard (`ws://127.0.0.1:8765`) and AI Coding Assistants (Claude, Cursor, Antigravity) via the official **Model Context Protocol (MCP)**.
 3. **2D/3D Canvas Framebuffer & Binary Stream Demuxing (`v3.1+`):** Ingests compact 8-byte binary pixel packets (`[0xAA, 0x55, ...]`) alongside standard JSON/CSV telemetry, rendering real-time camera feeds, thermal arrays, or custom hardware graphics with optional worker-node heatmap overlays.
+4. **Industrial Precision 4-Tab Workstation (`v3.2+`):** Overhauls the cluttered single-page interface into an uncluttered 4-tab engineering console (Telemetry & DSP, Framebuffer Studio, Virtualized 10k-Line Console, Control Panel) paired with a collapsible contextual Inspector panel for closed-loop tuning and a 28px global Status Bar.
 
 ```mermaid
 flowchart TD
@@ -114,6 +115,16 @@ Instantly generates memory-safe, production-ready embedded firmware templates:
   - `serial_read_telemetry`: Progressive token detail (`summary` vs `complete`), coverage tracking, and `_meta.provenance.untrusted_content = true` defense against indirect prompt injection.
   - `serial_send_command`: Injects command to hardware and broadcasts purple `[MCP TX]` badge on connected dashboards.
   - `serial_generate_firmware`: Generates target-specific embedded firmware.
+
+### 7. Industrial Precision 4-Tab Workstation & Contextual Inspector (`v3.2.0`)
+- **Dedicated 4-Tab Workspace Architecture:**
+  - `1 · Telemetry & DSP`: Dedicated waveform and spectral metrology workstation with 1, 2, or 3 column grid layouts, real-time FFT, and signal statistics.
+  - `2 · Framebuffer Studio`: High-performance rAF canvas rendering loop pulling directly from typed pixel memory (`framebufferStore`), with `1x`, `2x`, `4x`, and `Fit` zoom presets, RGB vs 64-Core Heatmap view modes, PNG snapshots, and real-time cursor hover readout (`X, Y → #RRGGBB · CoreID`).
+  - `3 · Console & Sniffer`: 10,000-line zero-allocation virtualized ring buffer (`@tanstack/react-virtual`), live regex and case-sensitive search with match navigation ("match 3 of 41"), stream filters (`All | RX | TX | MCP`), ASCII vs HEX byte view, timestamps toggle, autoscroll lock, and `.log` file export.
+  - `4 · Control Panel`: Drag-and-drop grouped controls (`@dnd-kit/sortable`), supporting Button (momentary), Slider (range), **Toggle** (latched ON/OFF), and **Numeric** (exact typed input) controls.
+- **Contextual Inspector Panel (320px, hotkey `]`):** Enables closed-loop parameter tuning (e.g. camera orientation or PID gains) directly beside active waveforms or graphics without leaving the tab.
+- **Global Status Bar (28px):** Displays connected port/simulator, baud rate, active protocol, lines/s, kB/s throughput (1-second sliding window), dropped frames, and truncated latest RX line (clickable to jump to Console).
+- **Industrial Precision Design Tokens:** Matte zinc surfaces (`#09090b` / `#111113`), 1px borders, restrained cyan accent (`#22d3ee`), self-hosted Geist & Geist Mono fonts, and motion only where it communicates state changes.
 
 #### Quickstart OpenSerial Bridge Daemon:
 ```bash
@@ -238,7 +249,7 @@ npm install
 # 3. Launch Vite development server
 npm run dev
 
-# 4. Execute full verification test suite (64 tests across 20 suites)
+# 4. Execute full verification test suite (70 tests across 21 suites)
 npm test
 ```
 
@@ -326,9 +337,10 @@ $ npm test
 ▶ OpenSerial Studio v3.1 — 3D Raymarching Algorithm (2/2 PASS)
 ▶ OpenSerial Studio v3.1 — Closed-Loop Framebuffer Simulator (2/2 PASS)
 ▶ OpenSerial Studio v3.1 — Bridge Multiplexer & v3.1.1 Hardening Suite (5/5 PASS)
+▶ OpenSerial Studio v3.2 — UI Logic & Metrology Buffers (6/6 PASS)
 ▶ OpenSerial Studio — Workspace Persistence & Profile Serialization (4/4 PASS)
 
-✔ All 64 tests passing across 20 suites (0 warnings, 0 errors)
+✔ All 70 tests passing across 21 suites (0 warnings, 0 errors)
 ```
 
 ---

@@ -494,7 +494,7 @@ function App() {
           {/* Tab 1: Telemetry */}
           <div
             className={cn('h-full w-full', activeTab !== 'telemetry' && 'hidden')}
-            inert={activeTab !== 'telemetry' ? '' : undefined}
+            inert={activeTab !== 'telemetry' ? true : undefined}
           >
             <TelemetryTab
               isActive={activeTab === 'telemetry'}
@@ -506,7 +506,7 @@ function App() {
           {/* Tab 2: Framebuffer */}
           <div
             className={cn('h-full w-full', activeTab !== 'framebuffer' && 'hidden')}
-            inert={activeTab !== 'framebuffer' ? '' : undefined}
+            inert={activeTab !== 'framebuffer' ? true : undefined}
           >
             <FramebufferTab
               incomingPixels={incomingPixelsBatch}
@@ -520,7 +520,7 @@ function App() {
           {/* Tab 3: Console */}
           <div
             className={cn('h-full w-full', activeTab !== 'console' && 'hidden')}
-            inert={activeTab !== 'console' ? '' : undefined}
+            inert={activeTab !== 'console' ? true : undefined}
           >
             <ConsoleTab
               logs={logs}
@@ -538,7 +538,7 @@ function App() {
           {/* Tab 4: Controls */}
           <div
             className={cn('h-full w-full', activeTab !== 'controls' && 'hidden')}
-            inert={activeTab !== 'controls' ? '' : undefined}
+            inert={activeTab !== 'controls' ? true : undefined}
           >
             <ControlsTab isActive={activeTab === 'controls'} onSend={handleWrite} />
           </div>

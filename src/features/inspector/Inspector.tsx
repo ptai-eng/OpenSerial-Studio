@@ -3,6 +3,8 @@ import { X, ExternalLink, SlidersHorizontal, Settings2 } from 'lucide-react';
 import { useStudioStore } from '../../store/useStudioStore';
 import { ButtonControl } from '../../components/controls/ButtonControl';
 import { SliderControl } from '../../components/controls/SliderControl';
+import { ToggleControl } from '../../components/controls/ToggleControl';
+import { NumericControl } from '../../components/controls/NumericControl';
 import type { WorkspaceTab } from '../../lib/workspace';
 
 interface InspectorProps {
@@ -36,13 +38,24 @@ export const Inspector: React.FC<InspectorProps> = ({ onSend }) => {
       return c.id.startsWith('cam_') || c.id.startsWith('light_');
     }
     if (activeTab === 'telemetry') {
-      return c.id.toLowerCase().includes('kp') || c.id.toLowerCase().includes('pid') || c.id.toLowerCase().includes('setpoint');
+      return (
+        c.id.toLowerCase().includes('kp') ||
+        c.id.toLowerCase().includes('pid') ||
+        c.id.toLowerCase().includes('setpoint')
+      );
     }
     return false;
   });
 
   return (
-    <aside className="w-80 shrink-0 border-l border-white/[0.08] bg-[#09090b] flex flex-col h-full z-10 select-none">
+    <>
+      {/* Mobile/Tablet Backdrop */}
+      <div
+        className="fixed inset-0 bg-black/50 backdrop-blur-xs z-20 md:hidden transition-opacity"
+        onClick={toggleInspector}
+      />
+
+      <aside className="w-80 shrink-0 border-l border-white/[0.08] bg-[#09090b] flex flex-col h-full z-30 select-none max-md:fixed max-md:right-0 max-md:top-0 max-md:bottom-0 max-md:shadow-2xl">
       {/* Inspector Header */}
       <div className="h-11 px-4 border-b border-white/[0.08] flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -83,7 +96,9 @@ export const Inspector: React.FC<InspectorProps> = ({ onSend }) => {
         ) : (
           <div className="space-y-3">
             <div className="flex items-center justify-between text-[11px] font-mono text-zinc-500 pb-1">
-              <span>{pinnedControls.length} pinned control{pinnedControls.length > 1 ? 's' : ''}</span>
+              <span>
+                {pinnedControls.length} pinned control{pinnedControls.length > 1 ? 's' : ''}
+              </span>
               <button
                 type="button"
                 onClick={() => setActiveTab('controls')}
@@ -99,9 +114,11 @@ export const Inspector: React.FC<InspectorProps> = ({ onSend }) => {
                 key={ctrl.id}
                 className="bg-[#111113] border border-white/[0.08] rounded-xl p-3 shadow-sm"
               >
-                {ctrl.type === 'button' ? (
+                {ctrl.type === 'button' && (
                   <ButtonControl id={ctrl.id} label={ctrl.label} onSend={onSend} />
-                ) : ctrl.type === 'slider' ? (
+                )}
+
+                {ctrl.type === 'slider' && (
                   <SliderControl
                     id={ctrl.id}
                     label={ctrl.label}
@@ -111,17 +128,28 @@ export const Inspector: React.FC<InspectorProps> = ({ onSend }) => {
                     onSend={onSend}
                     onConfigChange={(id, patch) => updateControl(id, patch)}
                   />
-                ) : (
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-mono text-zinc-300">{ctrl.label}</span>
-                    <button
-                      type="button"
-                      onClick={() => onSend(JSON.stringify({ [ctrl.id]: 1 }))}
-                      className="px-2 py-1 rounded bg-zinc-900 text-[11px] font-mono text-cyan-400 border border-white/10"
-                    >
-                      Trigger
-                    </button>
-                  </div>
+                )}
+
+                {ctrl.type === 'toggle' && (
+                  <ToggleControl
+                    id={ctrl.id}
+                    label={ctrl.label}
+                    initialValue={Boolean(ctrl.value)}
+                    onSend={onSend}
+                    compact
+                  />
+                )}
+
+                {ctrl.type === 'numeric' && (
+                  <NumericControl
+                    id={ctrl.id}
+                    label={ctrl.label}
+                    initialValue={typeof ctrl.value === 'number' ? ctrl.value : 0}
+                    unit={ctrl.unit}
+                    step={ctrl.step ?? 1}
+                    onSend={onSend}
+                    compact
+                  />
                 )}
               </div>
             ))}
@@ -129,5 +157,6 @@ export const Inspector: React.FC<InspectorProps> = ({ onSend }) => {
         )}
       </div>
     </aside>
+    </>
   );
 };

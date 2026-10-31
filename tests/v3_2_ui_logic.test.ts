@@ -9,6 +9,10 @@ import {
   highlightMatches,
 } from '../src/features/console/logFilter.ts';
 import {
+  migrateControlConfig,
+  migrateControls,
+} from '../src/features/controls/controlsMigration.ts';
+import {
   serializeWorkspaceProfile,
   parseWorkspaceProfile,
 } from '../src/lib/workspace.ts';
@@ -162,5 +166,43 @@ describe('OpenSerial Studio v3.2 — UI Logic & Metrology Buffers', () => {
     assert.equal(parsed.controls.length, 1);
     assert.equal(parsed.controls[0].group, 'Camera');
     assert.deepEqual(parsed.controls[0].pinTo, ['framebuffer']);
+  });
+
+  it('Controls migration upgrades legacy v1/v2 profiles with group and pinTo attributes', () => {
+    const legacy = [
+      { id: 'LED_1', type: 'button' },
+      { id: 'KP_GAIN', label: 'Proportional Gain', type: 'slider', min: 0, max: 50 },
+      { id: 'LED_1', type: 'button' }, // duplicate id
+      { id: 'SWITCH_1', type: 'toggle' },
+      { id: 'TARGET_RPM', type: 'numeric', value: 1200 },
+    ];
+
+    const migrated = migrateControls(legacy);
+    assert.equal(migrated.length, 4); // Deduplicated
+
+    // 1. Button check
+    assert.equal(migrated[0].id, 'LED_1');
+    assert.equal(migrated[0].label, 'LED_1');
+    assert.equal(migrated[0].group, 'General');
+    assert.deepEqual(migrated[0].pinTo, ['controls']);
+
+    // 2. Slider check
+    assert.equal(migrated[1].id, 'KP_GAIN');
+    assert.equal(migrated[1].label, 'Proportional Gain');
+    assert.equal(migrated[1].min, 0);
+    assert.equal(migrated[1].max, 50);
+    assert.equal(migrated[1].step, 1);
+
+    // 3. Toggle check
+    assert.equal(migrated[2].type, 'toggle');
+    assert.equal(migrated[2].value, false);
+
+    // 4. Numeric check
+    assert.equal(migrated[3].type, 'numeric');
+    assert.equal(migrated[3].value, 1200);
+
+    // Invalid item
+    assert.equal(migrateControlConfig(null as any), null);
+    assert.equal(migrateControlConfig({} as any), null);
   });
 });
