@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { DashboardLayout } from './components/layout/DashboardLayout';
 import { Header } from './components/layout/Header';
-import { TerminalLog } from './components/widgets/TerminalLog';
-import { ChartWidget, type ChartType } from './components/widgets/ChartWidget';
+import { TerminalLog, type TerminalLogItem } from './components/widgets/TerminalLog';
+import { ChartWidget } from './components/widgets/ChartWidget';
 import { TextWidget } from './components/widgets/TextWidget';
 import { ButtonControl } from './components/controls/ButtonControl';
 import { SliderControl } from './components/controls/SliderControl';
@@ -22,27 +22,30 @@ import {
   saveWorkspaceToStorage,
   serializeWorkspaceProfile,
   parseWorkspaceProfile,
+  DEFAULT_BUFFER_SIZE,
+  type ChartType,
+  type DemoPreset,
   type ControlConfig,
 } from './lib/workspace';
 import { PlusCircle, Trash2, Waves, Cpu, Thermometer, RotateCcw } from 'lucide-react';
 
-export type DemoPreset = 'dsp_harmonics' | 'pid_motor' | 'iot_env';
+export type { DemoPreset };
 
 function App() {
   const { status, connect, disconnect, readLoop, write, writeBytes, error } = useWebSerial();
   const { isRecording, startRecording, stopRecording, clearLog, exportCSV, logData, logCount } =
     useDataLogger();
 
-  // Initialize workspace state from localStorage (v2.2 persistence)
-  const initialProfile = useRef(loadWorkspaceFromStorage());
+  // Initialize workspace state from localStorage (v2.2 persistence, lazy once on mount)
+  const [initialProfile] = useState(() => loadWorkspaceFromStorage());
 
-  const [logs, setLogs] = useState<string[]>([]);
+  const [logs, setLogs] = useState<TerminalLogItem[]>([]);
   const [widgets, setWidgets] = useState<Map<string, WidgetConfig>>(new Map());
   const [controls, setControls] = useState<ControlConfig[]>(
-    () => initialProfile.current?.controls ?? []
+    () => initialProfile?.controls ?? []
   );
   const [widgetPrefs, setWidgetPrefs] = useState<Record<string, ChartType>>(
-    () => initialProfile.current?.widgetPrefs ?? {}
+    () => initialProfile?.widgetPrefs ?? {}
   );
   const [activeProtocol, setActiveProtocol] = useState<SerialProtocol | null>(null);
 
@@ -54,34 +57,50 @@ function App() {
   const [isCodeGenOpen, setIsCodeGenOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [baudRate, setBaudRate] = useState<number>(
-    () => initialProfile.current?.baudRate ?? 115200
+    () => initialProfile?.baudRate ?? 115200
   );
+  const [bufferSize, setBufferSize] = useState<number>(
+    () => initialProfile?.bufferSize ?? DEFAULT_BUFFER_SIZE
+  );
+  const bufferSizeRef = useRef(bufferSize);
+  useEffect(() => {
+    bufferSizeRef.current = bufferSize;
+  }, [bufferSize]);
 
   // Demo mode & preset
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [demoPreset, setDemoPreset] = useState<DemoPreset>(
-    () => initialProfile.current?.demoPreset ?? 'dsp_harmonics'
+    () => initialProfile?.demoPreset ?? 'dsp_harmonics'
   );
   const demoIntervalRef = useRef<number | null>(null);
 
-  // Persist workspace settings whenever baudRate, controls, widgetPrefs, or demoPreset change
+  // Persist workspace settings whenever baudRate, bufferSize, controls, widgetPrefs, or demoPreset change
   useEffect(() => {
     saveWorkspaceToStorage({
       baudRate,
+      bufferSize,
       controls,
       widgetPrefs,
       demoPreset,
     });
-  }, [baudRate, controls, widgetPrefs, demoPreset]);
+  }, [baudRate, bufferSize, controls, widgetPrefs, demoPreset]);
 
   // Lossless Ring-Buffer Queues between 50ms UI frames
-  const logsBuffer = useRef<string[]>([]);
+  const logsBuffer = useRef<TerminalLogItem[]>([]);
   const payloadQueueRef = useRef<ParsedTelemetryFrame[]>([]);
+  const latestRawChunkRef = useRef<Uint8Array | null>(null);
+
+  const handleRawChunk = useCallback((chunk: Uint8Array) => {
+    latestRawChunkRef.current = chunk;
+  }, []);
 
   // Handle incoming serial data without dropping intermediate samples
   const handleData = useCallback(
-    (data: string, sampleTimestamp?: number) => {
-      logsBuffer.current.push(data);
+    (data: string, sampleTimestamp?: number, rawBytes?: Uint8Array) => {
+      const entry: TerminalLogItem = rawBytes
+        ? { text: data, isTx: false, rawBytes }
+        : data;
+      logsBuffer.current.push(entry);
       if (logsBuffer.current.length > 300) {
         logsBuffer.current = logsBuffer.current.slice(-150);
       }
@@ -98,7 +117,7 @@ function App() {
     [logData]
   );
 
-  // UI Refresh Loop (20 FPS = 50ms) — drains full batch into 128-point power-of-two Ring-Buffer
+  // UI Refresh Loop (20 FPS = 50ms) — drains full batch into configurable N-point Ring-Buffer
   useEffect(() => {
     const interval = setInterval(() => {
       if (logsBuffer.current.length > 0) {
@@ -111,7 +130,9 @@ function App() {
         payloadQueueRef.current = [];
         const lastProto = batch[batch.length - 1].protocol;
         setActiveProtocol(lastProto);
-        setWidgets((currentWidgets) => extractWidgetsFromBatch(batch, currentWidgets, 128));
+        setWidgets((currentWidgets) =>
+          extractWidgetsFromBatch(batch, currentWidgets, bufferSizeRef.current)
+        );
       }
     }, 50);
     return () => clearInterval(interval);
@@ -119,9 +140,12 @@ function App() {
 
   useEffect(() => {
     if (status === 'connected') {
-      readLoop((line) => handleData(line));
+      readLoop(
+        (line) => handleData(line, undefined, latestRawChunkRef.current ?? undefined),
+        (chunk) => handleRawChunk(chunk)
+      );
     }
-  }, [status, readLoop, handleData]);
+  }, [status, readLoop, handleData, handleRawChunk]);
 
   const startDemoStream = useCallback(
     (preset: DemoPreset) => {
@@ -231,6 +255,7 @@ function App() {
   const handleExportProfile = () => {
     const json = serializeWorkspaceProfile({
       baudRate,
+      bufferSize,
       controls,
       widgetPrefs,
       demoPreset,
@@ -250,11 +275,21 @@ function App() {
     const profile = parseWorkspaceProfile(rawJson);
     if (!profile) return false;
     setBaudRate(profile.baudRate);
+    if (profile.bufferSize) setBufferSize(profile.bufferSize);
     setControls(profile.controls);
     setWidgetPrefs(profile.widgetPrefs);
     if (profile.demoPreset) setDemoPreset(profile.demoPreset);
     return true;
   };
+
+  const handleSliderConfigChange = useCallback(
+    (id: string, patch: { min: number; max: number; step: number }) => {
+      setControls((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, ...patch } : c))
+      );
+    },
+    []
+  );
 
   const handleAddControl = (e: React.FormEvent) => {
     e.preventDefault();
@@ -275,7 +310,11 @@ function App() {
 
   const handleWrite = (data: string) => {
     const cleanEcho = data.replace(/\r?\n$/, '');
-    logsBuffer.current.push(`> ${cleanEcho}`);
+    logsBuffer.current.push({
+      text: `> ${cleanEcho}`,
+      isTx: true,
+      rawBytes: new TextEncoder().encode(data),
+    });
 
     if (!isDemoMode) {
       write(data);
@@ -283,7 +322,11 @@ function App() {
   };
 
   const handleWriteBytes = (bytes: Uint8Array, displayHex: string) => {
-    logsBuffer.current.push(`> [HEX] ${displayHex}`);
+    logsBuffer.current.push({
+      text: `> [HEX] ${displayHex}`,
+      isTx: true,
+      rawBytes: bytes,
+    });
     if (!isDemoMode) {
       writeBytes(bytes);
     }
@@ -302,6 +345,8 @@ function App() {
         onClose={() => setIsSettingsOpen(false)}
         currentBaudRate={baudRate}
         onSaveBaudRate={setBaudRate}
+        currentBufferSize={bufferSize}
+        onSaveBufferSize={setBufferSize}
         onExportProfile={handleExportProfile}
         onImportProfile={handleImportProfile}
       />
@@ -392,6 +437,9 @@ function App() {
                   Protocol: {activeProtocol.toUpperCase()}
                 </span>
               )}
+              <span className="px-2.5 py-1 rounded-full text-[11px] font-mono text-purple-300 bg-purple-500/10 border border-purple-500/20">
+                N = {bufferSize}
+              </span>
               <span className="px-2.5 py-1 rounded-full text-[11px] font-mono text-zinc-400 bg-zinc-900 border border-white/5">
                 {baudRate} bps
               </span>
@@ -517,6 +565,7 @@ function App() {
                         max={ctrl.max}
                         step={ctrl.step}
                         onSend={handleWrite}
+                        onConfigChange={handleSliderConfigChange}
                       />
                     )}
                   </div>

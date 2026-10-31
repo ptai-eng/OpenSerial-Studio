@@ -17,8 +17,9 @@ import {
   analyzeSignalAndSpectrum,
   type WindowFunctionType,
 } from '../../lib/dsp';
+import type { ChartType } from '../../lib/workspace';
 
-export type ChartType = 'line' | 'bar' | 'gauge' | 'fft';
+export type { ChartType };
 
 interface ChartWidgetProps {
   label: string;

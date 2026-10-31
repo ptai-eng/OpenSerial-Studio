@@ -2,17 +2,19 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Terminal, Trash2, Send, Pause, Play, Binary } from 'lucide-react';
 import { parseHexInput, toHexString } from '../../lib/parser';
 
-export interface LogEntry {
-  id: number;
-  timestamp: string;
-  direction: 'rx' | 'tx';
+export interface TerminalLogEntry {
   text: string;
+  isTx?: boolean;
+  rawBytes?: Uint8Array;
+  timestamp?: string;
 }
+
+export type TerminalLogItem = string | TerminalLogEntry;
 
 type LineEnding = '\n' | '\r\n' | '\r' | '';
 
 interface TerminalLogProps {
-  logs: string[];
+  logs: TerminalLogItem[];
   onClear: () => void;
   onSend?: (payload: string) => void;
   onSendBytes?: (bytes: Uint8Array, displayHex: string) => void;
@@ -151,9 +153,24 @@ export const TerminalLog: React.FC<TerminalLogProps> = ({
           </div>
         ) : (
           logs.map((log, i) => {
-            const isTx = log.startsWith('> ');
-            const cleanText = isTx ? log.slice(2).trimEnd() : log;
-            const displayPayload = hexView ? toHexString(cleanText) : cleanText;
+            let isTx = false;
+            let cleanText = '';
+            let rawBytes: Uint8Array | undefined;
+
+            if (typeof log === 'string') {
+              isTx = log.startsWith('> ');
+              cleanText = isTx ? log.slice(2).trimEnd() : log;
+            } else {
+              isTx = log.isTx ?? log.text.startsWith('> ');
+              cleanText = isTx && log.text.startsWith('> ') ? log.text.slice(2).trimEnd() : log.text;
+              rawBytes = log.rawBytes;
+            }
+
+            const displayPayload = hexView
+              ? rawBytes
+                ? toHexString(rawBytes)
+                : toHexString(cleanText)
+              : cleanText;
 
             return (
               <div key={i} className="break-all flex items-start gap-1.5 leading-relaxed">

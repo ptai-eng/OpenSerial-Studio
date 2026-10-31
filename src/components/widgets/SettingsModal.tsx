@@ -6,6 +6,8 @@ interface SettingsModalProps {
   onClose: () => void;
   currentBaudRate: number;
   onSaveBaudRate: (baud: number) => void;
+  currentBufferSize?: number;
+  onSaveBufferSize?: (size: number) => void;
   onExportProfile?: () => void;
   onImportProfile?: (rawJson: string) => boolean;
 }
@@ -17,12 +19,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onClose,
   currentBaudRate,
   onSaveBaudRate,
+  currentBufferSize = 128,
+  onSaveBufferSize,
   onExportProfile,
   onImportProfile,
 }) => {
   const isStandard = STANDARD_BAUD_RATES.includes(currentBaudRate);
 
   const [selectedBaud, setSelectedBaud] = useState<number>(currentBaudRate);
+  const [selectedBufferSize, setSelectedBufferSize] = useState<number>(currentBufferSize);
   const [isCustom, setIsCustom] = useState<boolean>(!isStandard);
   const [customBaud, setCustomBaud] = useState<string>(!isStandard ? currentBaudRate.toString() : '');
   const [profileFeedback, setProfileFeedback] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
@@ -38,6 +43,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       }
     } else {
       onSaveBaudRate(selectedBaud);
+    }
+    if (onSaveBufferSize) {
+      onSaveBufferSize(selectedBufferSize);
     }
     onClose();
   };
@@ -128,6 +136,37 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 />
               </div>
             )}
+          </div>
+
+          {/* Ring-Buffer / FFT Window Size */}
+          <div className="pt-4 border-t border-white/5">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm font-semibold text-zinc-300 block">
+                Telemetry Buffer / FFT Window Size (N)
+              </label>
+              <span className="text-xs font-mono text-purple-300 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20">
+                N = {selectedBufferSize}
+              </span>
+            </div>
+            <div className="grid grid-cols-5 gap-2">
+              {([64, 128, 256, 512, 1024] as const).map((size) => (
+                <button
+                  key={size}
+                  type="button"
+                  onClick={() => setSelectedBufferSize(size)}
+                  className={`py-2 px-1 rounded-lg text-xs font-mono font-medium transition-all border text-center ${
+                    selectedBufferSize === size
+                      ? 'bg-purple-500/20 border-purple-400 text-purple-300 shadow-[0_0_10px_rgba(168,85,247,0.15)]'
+                      : 'bg-zinc-900 border-white/5 text-zinc-400 hover:bg-zinc-800'
+                  }`}
+                >
+                  {size}
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-zinc-500 mt-2">
+              Larger N increases spectral resolution (Δf = Fs / N) for precision FFT analysis.
+            </p>
           </div>
 
           {/* Workspace Profile Export / Import */}

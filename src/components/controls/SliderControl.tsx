@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Minus, Plus, SlidersHorizontal } from 'lucide-react';
 
 interface SliderControlProps {
@@ -8,6 +8,7 @@ interface SliderControlProps {
   max?: number;
   step?: number;
   onSend: (payload: string) => void;
+  onConfigChange?: (id: string, config: { min: number; max: number; step: number }) => void;
 }
 
 export const SliderControl: React.FC<SliderControlProps> = ({
@@ -17,12 +18,25 @@ export const SliderControl: React.FC<SliderControlProps> = ({
   max: initialMax = 255,
   step: initialStep = 1,
   onSend,
+  onConfigChange,
 }) => {
   const [min, setMin] = useState<number>(initialMin);
   const [max, setMax] = useState<number>(initialMax);
   const [step, setStep] = useState<number>(initialStep);
   const [value, setValue] = useState<number>(initialMin);
   const [showRangeConfig, setShowRangeConfig] = useState(false);
+
+  useEffect(() => {
+    setMin(initialMin);
+  }, [initialMin]);
+
+  useEffect(() => {
+    setMax(initialMax);
+  }, [initialMax]);
+
+  useEffect(() => {
+    setStep(initialStep);
+  }, [initialStep]);
 
   const sendValue = (nextVal: number) => {
     const clamped = Math.min(Math.max(nextVal, min), max);
@@ -34,6 +48,23 @@ export const SliderControl: React.FC<SliderControlProps> = ({
 
   const handleRelease = () => {
     sendValue(value);
+  };
+
+  const handleMinChange = (newMin: number) => {
+    setMin(newMin);
+    onConfigChange?.(id, { min: newMin, max, step });
+  };
+
+  const handleMaxChange = (newMax: number) => {
+    setMax(newMax);
+    onConfigChange?.(id, { min, max: newMax, step });
+  };
+
+  const handleStepChange = (newStep: number) => {
+    if (newStep > 0) {
+      setStep(newStep);
+      onConfigChange?.(id, { min, max, step: newStep });
+    }
   };
 
   return (
@@ -86,7 +117,7 @@ export const SliderControl: React.FC<SliderControlProps> = ({
             <input
               type="number"
               value={min}
-              onChange={(e) => setMin(Number(e.target.value))}
+              onChange={(e) => handleMinChange(Number(e.target.value))}
               className="w-full bg-zinc-950 border border-white/10 rounded px-2 py-1 text-zinc-200 focus:outline-none focus:border-accent-blue"
             />
           </div>
@@ -95,7 +126,7 @@ export const SliderControl: React.FC<SliderControlProps> = ({
             <input
               type="number"
               value={max}
-              onChange={(e) => setMax(Number(e.target.value))}
+              onChange={(e) => handleMaxChange(Number(e.target.value))}
               className="w-full bg-zinc-950 border border-white/10 rounded px-2 py-1 text-zinc-200 focus:outline-none focus:border-accent-blue"
             />
           </div>
@@ -108,7 +139,7 @@ export const SliderControl: React.FC<SliderControlProps> = ({
               value={step}
               onChange={(e) => {
                 const v = Number(e.target.value);
-                if (v > 0) setStep(v);
+                if (v > 0) handleStepChange(v);
               }}
               className="w-full bg-zinc-950 border border-white/10 rounded px-2 py-1 text-zinc-200 focus:outline-none focus:border-accent-blue"
             />

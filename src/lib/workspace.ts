@@ -1,5 +1,5 @@
-import type { ChartType } from '../components/widgets/ChartWidget';
-import type { DemoPreset } from '../App';
+export type ChartType = 'line' | 'bar' | 'gauge' | 'fft';
+export type DemoPreset = 'dsp_harmonics' | 'pid_motor' | 'iot_env';
 
 export interface ControlConfig {
   id: string;
@@ -10,11 +10,16 @@ export interface ControlConfig {
   step?: number;
 }
 
+export const VALID_BUFFER_SIZES = [64, 128, 256, 512, 1024] as const;
+export type ValidBufferSize = (typeof VALID_BUFFER_SIZES)[number];
+export const DEFAULT_BUFFER_SIZE: ValidBufferSize = 128;
+
 export interface WorkspaceProfile {
   version: '2.2';
   name: string;
   exportedAt: string;
   baudRate: number;
+  bufferSize?: number;
   controls: ControlConfig[];
   widgetPrefs: Record<string, ChartType>;
   demoPreset?: DemoPreset;
@@ -27,6 +32,7 @@ const VALID_CHART_TYPES = new Set<ChartType>(['line', 'bar', 'gauge', 'fft']);
 export function serializeWorkspaceProfile(
   state: {
     baudRate: number;
+    bufferSize?: number;
     controls: ControlConfig[];
     widgetPrefs: Record<string, ChartType>;
     demoPreset?: DemoPreset;
@@ -38,6 +44,7 @@ export function serializeWorkspaceProfile(
     name,
     exportedAt: new Date().toISOString(),
     baudRate: state.baudRate,
+    bufferSize: state.bufferSize ?? DEFAULT_BUFFER_SIZE,
     controls: state.controls,
     widgetPrefs: state.widgetPrefs,
     demoPreset: state.demoPreset,
@@ -55,6 +62,12 @@ export function parseWorkspaceProfile(rawJson: string): WorkspaceProfile | null 
       typeof obj.baudRate === 'number' && Number.isFinite(obj.baudRate) && obj.baudRate > 0
         ? Math.floor(obj.baudRate)
         : 115200;
+
+    const bufferSize =
+      typeof obj.bufferSize === 'number' &&
+      VALID_BUFFER_SIZES.includes(obj.bufferSize as ValidBufferSize)
+        ? (obj.bufferSize as ValidBufferSize)
+        : DEFAULT_BUFFER_SIZE;
 
     const controls: ControlConfig[] = [];
     if (Array.isArray(obj.controls)) {
@@ -99,6 +112,7 @@ export function parseWorkspaceProfile(rawJson: string): WorkspaceProfile | null 
       name: typeof obj.name === 'string' ? obj.name : 'Imported Profile',
       exportedAt: typeof obj.exportedAt === 'string' ? obj.exportedAt : new Date().toISOString(),
       baudRate,
+      bufferSize,
       controls,
       widgetPrefs,
       demoPreset,
@@ -121,6 +135,7 @@ export function loadWorkspaceFromStorage(): WorkspaceProfile | null {
 
 export function saveWorkspaceToStorage(state: {
   baudRate: number;
+  bufferSize?: number;
   controls: ControlConfig[];
   widgetPrefs: Record<string, ChartType>;
   demoPreset?: DemoPreset;
