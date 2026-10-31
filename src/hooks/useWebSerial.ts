@@ -1,24 +1,98 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { parseHexInput } from '../lib/parser';
 
-export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'released_for_flash' | 'error';
+export type TransportMode = 'usb' | 'bridge';
 
 export interface SerialConnectionOptions {
   baudRate?: number;
   dataBits?: 7 | 8;
   stopBits?: 1 | 2;
   parity?: 'none' | 'even' | 'odd';
+  wsUrl?: string;
 }
 
 export function useWebSerial() {
+  const [transportMode, setTransportMode] = useState<TransportMode>('usb');
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const [error, setError] = useState<string | null>(null);
+  const [bridgeStatus, setBridgeStatus] = useState<any | null>(null);
+
+  // USB Web Serial references
   const portRef = useRef<any | null>(null);
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const writerRef = useRef<WritableStreamDefaultWriter<Uint8Array> | null>(null);
   const keepReadingRef = useRef<boolean>(true);
   const encoderRef = useRef<TextEncoder>(new TextEncoder());
 
-  const connect = useCallback(async (baudRate = 115200, options?: Omit<SerialConnectionOptions, 'baudRate'>) => {
+  // Bridge WebSocket references
+  const wsRef = useRef<WebSocket | null>(null);
+  const bridgeCallbacksRef = useRef<{
+    onData?: (data: string, isMcpTx?: boolean, rawBytes?: Uint8Array) => void;
+    onRawData?: (chunk: Uint8Array) => void;
+  }>({});
+
+  const connectBridge = useCallback((wsUrl = 'ws://127.0.0.1:8765') => {
+    setStatus('connecting');
+    setError(null);
+
+    try {
+      const socket = new WebSocket(wsUrl);
+      wsRef.current = socket;
+
+      socket.onopen = () => {
+        setStatus('connected');
+        setError(null);
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'rx_data' && typeof msg.line === 'string') {
+            let rawBytes: Uint8Array | undefined;
+            if (msg.rawHex) {
+              rawBytes = parseHexInput(msg.rawHex) ?? undefined;
+            }
+            if (rawBytes && bridgeCallbacksRef.current.onRawData) {
+              bridgeCallbacksRef.current.onRawData(rawBytes);
+            }
+            if (bridgeCallbacksRef.current.onData) {
+              bridgeCallbacksRef.current.onData(msg.line, false, rawBytes);
+            }
+          } else if (msg.type === 'tx_echo') {
+            const isMcp = msg.origin === 'mcp';
+            if (isMcp && bridgeCallbacksRef.current.onData) {
+              bridgeCallbacksRef.current.onData(msg.text, true);
+            }
+          } else if (msg.type === 'status') {
+            setBridgeStatus(msg.data);
+            if (msg.data?.status === 'released_for_flash') {
+              setStatus('released_for_flash');
+            } else if (msg.data?.status === 'connected') {
+              setStatus('connected');
+            }
+          }
+        } catch (err) {
+          console.error('[Bridge WS] Failed to parse message:', err);
+        }
+      };
+
+      socket.onerror = () => {
+        setStatus('error');
+        setError('Cannot connect to Bridge daemon at ' + wsUrl + '. Make sure "npm run bridge" is running.');
+      };
+
+      socket.onclose = () => {
+        setStatus((prev) => (prev === 'connected' ? 'disconnected' : prev));
+        wsRef.current = null;
+      };
+    } catch (err: any) {
+      setStatus('error');
+      setError(err?.message || 'WebSocket connection error');
+    }
+  }, []);
+
+  const connectUsb = useCallback(async (baudRate = 115200, options?: Omit<SerialConnectionOptions, 'baudRate'>) => {
     try {
       if (!('serial' in navigator)) {
         throw new Error('Web Serial API is not supported in this browser. Please use Chrome, Edge, or Opera.');
@@ -47,7 +121,25 @@ export function useWebSerial() {
     }
   }, []);
 
+  const connect = useCallback(async (baudRate = 115200, options?: SerialConnectionOptions) => {
+    if (transportMode === 'bridge') {
+      connectBridge(options?.wsUrl ?? 'ws://127.0.0.1:8765');
+    } else {
+      await connectUsb(baudRate, options);
+    }
+  }, [transportMode, connectBridge, connectUsb]);
+
   const disconnect = useCallback(async () => {
+    if (transportMode === 'bridge') {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      setStatus('disconnected');
+      setError(null);
+      return;
+    }
+
     keepReadingRef.current = false;
 
     try {
@@ -78,7 +170,7 @@ export function useWebSerial() {
       console.error('Serial Disconnect Error:', err);
       setError(err?.message || 'Failed to disconnect');
     }
-  }, []);
+  }, [transportMode]);
 
   useEffect(() => {
     const handlePhysicalDisconnect = (e: any) => {
@@ -103,10 +195,20 @@ export function useWebSerial() {
   }, []);
 
   const writeBytes = useCallback(async (bytes: Uint8Array) => {
-    if (!portRef.current || status !== 'connected') {
+    if (status !== 'connected') {
       console.warn('Cannot write: Port not connected');
       return;
     }
+
+    if (transportMode === 'bridge') {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        const text = new TextDecoder().decode(bytes);
+        wsRef.current.send(JSON.stringify({ type: 'tx_command', payload: text }));
+      }
+      return;
+    }
+
+    if (!portRef.current) return;
 
     try {
       if (!writerRef.current) {
@@ -117,18 +219,33 @@ export function useWebSerial() {
       console.error('Serial Write Error:', err);
       setError(err?.message || 'Failed to write data');
     }
-  }, [status]);
+  }, [status, transportMode]);
 
   const write = useCallback(async (data: string) => {
+    if (transportMode === 'bridge') {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'tx_command', payload: data }));
+      }
+      return;
+    }
+
     const encoded = encoderRef.current.encode(data);
     await writeBytes(encoded);
-  }, [writeBytes]);
+  }, [transportMode, writeBytes]);
 
   const readLoop = useCallback(
     async (
-      onDataReceived: (data: string) => void,
+      onDataReceived: (data: string, isMcpTx?: boolean, rawBytes?: Uint8Array) => void,
       onRawData?: (chunk: Uint8Array) => void
     ) => {
+      if (transportMode === 'bridge') {
+        bridgeCallbacksRef.current = {
+          onData: onDataReceived,
+          onRawData,
+        };
+        return;
+      }
+
       if (!portRef.current || status !== 'connected') return;
 
       try {
@@ -159,7 +276,7 @@ export function useWebSerial() {
 
             for (const line of lines) {
               const trimmed = line.trim();
-              if (trimmed) onDataReceived(trimmed);
+              if (trimmed) onDataReceived(trimmed, false, value);
             }
           }
         }
@@ -182,11 +299,14 @@ export function useWebSerial() {
         }
       }
     },
-    [status, disconnect]
+    [status, disconnect, transportMode]
   );
 
   return {
     status,
+    transportMode,
+    setTransportMode,
+    bridgeStatus,
     error,
     connect,
     disconnect,

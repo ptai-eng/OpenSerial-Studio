@@ -9,7 +9,8 @@
     <a href="https://react.dev/"><img src="https://img.shields.io/badge/React-19.2-61DAFB.svg?logo=react" alt="React 19"></a>
     <a href="https://vitejs.dev/"><img src="https://img.shields.io/badge/Vite-8.1-646CFF.svg?logo=vite" alt="Vite 8"></a>
     <a href="https://tailwindcss.com/"><img src="https://img.shields.io/badge/TailwindCSS-v4.3-38B2AC.svg?logo=tailwind-css" alt="Tailwind CSS v4"></a>
-    <a href="https://github.com/ptai-eng/OpenSerial-Studio/releases"><img src="https://img.shields.io/badge/Release-v2.3.0-purple.svg" alt="Release v2.3.0"></a>
+    <a href="https://github.com/ptai-eng/OpenSerial-Studio/releases"><img src="https://img.shields.io/badge/Release-v3.0.0-purple.svg" alt="Release v3.0.0"></a>
+    <a href="https://modelcontextprotocol.io/"><img src="https://img.shields.io/badge/MCP-Compatible-green.svg" alt="MCP Compatible"></a>
     <a href="https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps"><img src="https://img.shields.io/badge/PWA-Ready-5A0FC8.svg?logo=pwa" alt="PWA Ready"></a>
     <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
   </p>
@@ -21,17 +22,33 @@
 
 ## 📖 Introduction
 
-**OpenSerial Studio** is an industrial-grade, platform-agnostic web telemetry dashboard and signal metrology workstation built for electronics & telecommunications engineers, embedded firmware developers, and robotics researchers. Leveraging the modern **Web Serial API**, it establishes direct bidirectional UART/USB CDC links with hardware without requiring local daemon installations, bridge drivers, or native compilers.
-
-The architectural philosophy of OpenSerial Studio centers on **Hardware Independence and Scientific Precision**. Whether you are interfacing an 8-bit AVR Arduino, an ESP32 dual-core SoC, an STM32 ARM Cortex-M with DMA, a Raspberry Pi Pico (RP2040/RP2350), or a custom FPGA soft-core, OpenSerial Studio automatically ingests, parses, renders, and analyzes your telemetry in real-time.
+**OpenSerial Studio** is an industrial-grade, platform-agnostic telemetry dashboard and signal metrology workstation built for electronics & telecommunications engineers, embedded firmware developers, and robotics researchers. It features a unique **Hybrid Dual-Transport Architecture**:
+1. **Zero-Install Web Serial Mode:** Connects directly from modern browsers (Chrome, Edge, Opera) to hardware COM ports via the native Web Serial API without requiring local installations or drivers.
+2. **Local Bridge Daemon & MCP Server Mode (`v3.0.0`):** Runs a lightweight local daemon multiplexing physical serial ports or closed-loop virtual simulators to both the Web Dashboard (`ws://127.0.0.1:8765`) and AI Coding Assistants (Claude, Cursor, Antigravity) via the official **Model Context Protocol (MCP)**.
 
 ```mermaid
-flowchart LR
-    MCU["Microcontroller\n(Arduino / STM32 / ESP32 / Pico)"] -->|"UART / USB CDC\nJSON | Plotter | CSV | HEX"| WebSerial["Web Serial API\n(Browser Engine)"]
-    WebSerial --> Parser["Lossless Ring-Buffer\nMulti-Protocol Parser"]
-    Parser --> Timebase["Hardware Timebase Normalizer\n(t_us / seq / Anti-Jitter)"]
-    Timebase --> Dashboard["UI Render Loop (20 FPS / 50ms)\nWidgets | Controls | Terminal"]
-    Timebase --> DSP["Laboratory DSP Metrology\nRadix-2 FFT | Welch PSD\nSNR | THD | SINAD | ENOB\nIEEE-1057 Sine Fit"]
+flowchart TD
+    subgraph Hardware ["Hardware Layer / Virtual MCU"]
+        MCU["Physical Microcontroller\n(Arduino / STM32 / ESP32 / Pico)"]
+        SIM["Virtual MCU Simulator\n(DSP Harmonics / PID Motor / IoT)"]
+    end
+
+    subgraph BridgeDaemon ["OpenSerial Bridge Daemon (v3.0)"]
+        MUX["Single-Owner Serial Multiplexer\n(Rate Limiter / Flasher Release Lock)"]
+        MCP["MCP Server (JSON-RPC stdio)\n5 Autonomous Tools"]
+        WSS["WebSocket Server\n(ws://127.0.0.1:8765)"]
+    end
+
+    subgraph ClientLayer ["Clients & AI Ecosystem"]
+        WebUI["OpenSerial Web Dashboard\n(PWA / React 19 / Recharts)"]
+        AI["AI Coding Agent\n(Claude / Cursor / Antigravity)"]
+    end
+
+    MCU -->|"Direct USB CDC"| WebUI
+    MCU -->|"Physical Serial"| MUX
+    SIM -->|"In-Memory Stream"| MUX
+    MUX <-->|"stdio JSON-RPC"| MCP <-->|"Tools"| AI
+    MUX <-->|"Telemetry & TX Echo"| WSS <-->|"WebSocket"| WebUI
 ```
 
 ---
@@ -76,6 +93,36 @@ Instantly generates memory-safe, production-ready embedded firmware templates:
 ### 5. Workspace Persistence & Profile Sharing
 - **Local Synchronization:** Preserves baud rate, FFT window size $N$, slider boundaries, and widget modes automatically in browser storage.
 - **Profile Export/Import:** Export and import complete hardware workspaces as portable `.json` files.
+
+### 6. Local Bridge Daemon & MCP Server Ecosystem (`v3.0.0`)
+- **Single-Owner Serial Multiplexer:** Solves the physical single-owner constraint of UART hardware. Web dashboards and AI assistants read and write simultaneously through a local WebSocket server (`ws://127.0.0.1:8765`).
+- **Closed-Loop Virtual MCU Simulator:** Provides 3 real-time hardware physics scenarios (`sim://dsp_harmonics`, `sim://pid_motor`, `sim://iot_env`) responding dynamically to incoming commands.
+- **Standard Model Context Protocol (MCP) Tools:**
+  - `serial_list_ports`: Enumerates available COM ports and virtual simulation channels.
+  - `serial_connect`: Connects to hardware or virtual simulator.
+  - `serial_release_port`: Temporarily releases port lock for external CLI flashers (`arduino-cli`, `esptool`) without "Port busy" errors.
+  - `serial_read_telemetry`: Progressive token detail (`summary` vs `complete`), coverage tracking, and `_meta.provenance.untrusted_content = true` defense against indirect prompt injection.
+  - `serial_send_command`: Injects command to hardware and broadcasts purple `[MCP TX]` badge on connected dashboards.
+  - `serial_generate_firmware`: Generates target-specific embedded firmware.
+
+#### Quickstart OpenSerial Bridge Daemon:
+```bash
+# Start bridge with virtual PID motor simulator
+$ npm run bridge -- --sim pid_motor
+
+# Start bridge with physical hardware COM port
+$ npm run bridge -- --port COM3 --baud 115200
+
+# Configure in Claude Desktop or Cursor (claude_desktop_config.json):
+{
+  "mcpServers": {
+    "openserial": {
+      "command": "node",
+      "args": ["C:/Users/PT/Downloads/Claude/OpenSerial-Studio/bridge/cli.ts", "--sim", "dsp_harmonics"]
+    }
+  }
+}
+```
 
 ---
 
@@ -235,9 +282,12 @@ $ npm test
 ▶ OpenSerial Studio v2.1 — DSP & Numerical Methods (Radix-2 FFT) (4/4 PASS)
 ▶ OpenSerial Studio v2.3 — Hardware Timebase & USB CDC Jitter Elimination (4/4 PASS)
 ▶ OpenSerial Studio v2.3 — Deep DSP & Numerical Methods (4/4 PASS)
+▶ OpenSerial Studio v3.0 — Virtual MCU Simulator (Closed-Loop Physics) (3/3 PASS)
+▶ OpenSerial Studio v3.0 — Serial Multiplexer & WebSocket Broadcast (3/3 PASS)
+▶ OpenSerial Studio v3.0 — MCP Server Tool Contract (rea-tool-design) (6/6 PASS)
 ▶ OpenSerial Studio — Workspace Persistence & Profile Serialization (4/4 PASS)
 
-✔ All 37 tests passing (0 warnings, 0 errors)
+✔ All 49 tests passing across 15 suites (0 warnings, 0 errors)
 ```
 
 ---

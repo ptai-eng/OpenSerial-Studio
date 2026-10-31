@@ -1,10 +1,12 @@
 import React from 'react';
-import { Plug, Zap, Settings, Activity, Code2, Download, Play, Square } from 'lucide-react';
-import type { ConnectionStatus } from '../../hooks/useWebSerial';
+import { Plug, Zap, Settings, Activity, Code2, Download, Play, Square, Radio } from 'lucide-react';
+import type { ConnectionStatus, TransportMode } from '../../hooks/useWebSerial';
 import { cn } from '../../lib/utils';
 
 interface HeaderProps {
   status: ConnectionStatus;
+  transportMode?: TransportMode;
+  onSelectTransportMode?: (mode: TransportMode) => void;
   onConnect: () => void;
   onDisconnect: () => void;
   onOpenCodeGen: () => void;
@@ -19,7 +21,7 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ 
-  status, onConnect, onDisconnect, onOpenCodeGen, onOpenSettings,
+  status, transportMode = 'usb', onSelectTransportMode, onConnect, onDisconnect, onOpenCodeGen, onOpenSettings,
   onDemo, isDemoMode, isRecording, onStartRecording, onStopRecording, onExportCSV, logCount
 }) => {
   return (
@@ -37,6 +39,40 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       <div className="flex items-center gap-4">
+        {/* Transport Mode Selector (Only when disconnected) */}
+        {status !== 'connected' && !isDemoMode && (
+          <div className="flex items-center bg-zinc-900 border border-white/5 rounded-lg p-0.5 text-xs font-medium">
+            <button 
+              type="button"
+              onClick={() => onSelectTransportMode?.('usb')}
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-all",
+                transportMode === 'usb'
+                  ? "bg-zinc-800 text-zinc-100 shadow-sm"
+                  : "text-zinc-400 hover:text-zinc-200"
+              )}
+              title="Direct Browser Web Serial (Chrome/Edge)"
+            >
+              <Plug className="w-3.5 h-3.5 text-accent-blue" />
+              <span>USB Direct</span>
+            </button>
+            <button 
+              type="button"
+              onClick={() => onSelectTransportMode?.('bridge')}
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-all",
+                transportMode === 'bridge'
+                  ? "bg-purple-950/60 text-purple-200 border border-purple-500/30 shadow-sm"
+                  : "text-zinc-400 hover:text-zinc-200"
+              )}
+              title="Local WebSocket Bridge Daemon + MCP AI Agent (ws://127.0.0.1:8765)"
+            >
+              <Radio className="w-3.5 h-3.5 text-purple-400" />
+              <span>Bridge WS</span>
+            </button>
+          </div>
+        )}
+
         {/* Status Indicator */}
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-900 border border-white/5">
           <div className="relative flex h-2.5 w-2.5">
@@ -48,12 +84,17 @@ export const Header: React.FC<HeaderProps> = ({
                 "relative inline-flex rounded-full h-2.5 w-2.5 transition-colors duration-300",
                 status === 'connected' ? "bg-accent-green shadow-[0_0_8px_rgba(0,255,136,0.6)]" : 
                 status === 'connecting' ? "bg-yellow-500" : 
+                status === 'released_for_flash' ? "bg-amber-400 animate-pulse" :
                 status === 'error' ? "bg-red-500" : "bg-zinc-600"
               )}
             ></span>
           </div>
           <span className="text-xs font-medium uppercase tracking-wider text-zinc-400">
-            {status === 'connected' ? 'Connected' : status === 'connecting' ? 'Connecting...' : status === 'error' ? 'Error' : 'Disconnected'}
+            {status === 'connected' 
+              ? (transportMode === 'bridge' ? 'Bridge Connected' : 'Connected')
+              : status === 'connecting' ? 'Connecting...' 
+              : status === 'released_for_flash' ? 'Flashing Mode'
+              : status === 'error' ? 'Error' : 'Disconnected'}
           </span>
         </div>
 
@@ -72,8 +113,8 @@ export const Header: React.FC<HeaderProps> = ({
               disabled={status === 'connecting'}
               className="flex items-center gap-2 px-4 py-2 bg-zinc-100 text-zinc-950 hover:bg-white rounded-lg font-semibold text-sm transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100"
             >
-              <Plug className="w-4 h-4" />
-              Connect
+              {transportMode === 'bridge' ? <Radio className="w-4 h-4 text-purple-600" /> : <Plug className="w-4 h-4" />}
+              {transportMode === 'bridge' ? 'Connect Bridge' : 'Connect'}
             </button>
           </div>
         ) : (

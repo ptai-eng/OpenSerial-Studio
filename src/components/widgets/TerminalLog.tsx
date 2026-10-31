@@ -5,6 +5,7 @@ import { parseHexInput, toHexString } from '../../lib/parser';
 export interface TerminalLogEntry {
   text: string;
   isTx?: boolean;
+  isMcpTx?: boolean;
   rawBytes?: Uint8Array;
   timestamp?: string;
 }
@@ -154,14 +155,17 @@ export const TerminalLog: React.FC<TerminalLogProps> = ({
         ) : (
           logs.map((log, i) => {
             let isTx = false;
+            let isMcpTx = false;
             let cleanText = '';
             let rawBytes: Uint8Array | undefined;
 
             if (typeof log === 'string') {
-              isTx = log.startsWith('> ');
-              cleanText = isTx ? log.slice(2).trimEnd() : log;
+              isMcpTx = log.startsWith('[MCP TX] ') || log.startsWith('>[MCP] ');
+              isTx = isMcpTx || log.startsWith('> ');
+              cleanText = isTx && log.startsWith('> ') ? log.slice(2).trimEnd() : log;
             } else {
-              isTx = log.isTx ?? log.text.startsWith('> ');
+              isMcpTx = Boolean(log.isMcpTx || log.text.startsWith('[MCP TX] '));
+              isTx = isMcpTx || (log.isTx ?? log.text.startsWith('> '));
               cleanText = isTx && log.text.startsWith('> ') ? log.text.slice(2).trimEnd() : log.text;
               rawBytes = log.rawBytes;
             }
@@ -176,14 +180,16 @@ export const TerminalLog: React.FC<TerminalLogProps> = ({
               <div key={i} className="break-all flex items-start gap-1.5 leading-relaxed">
                 <span
                   className={`text-[10px] font-bold px-1 rounded mt-0.5 select-none ${
-                    isTx
+                    isMcpTx
+                      ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-[0_0_8px_rgba(168,85,247,0.25)]'
+                      : isTx
                       ? 'bg-accent-green/15 text-accent-green border border-accent-green/30'
                       : 'bg-accent-blue/15 text-accent-blue border border-accent-blue/30'
                   }`}
                 >
-                  {isTx ? 'TX' : 'RX'}
+                  {isMcpTx ? 'MCP TX' : isTx ? 'TX' : 'RX'}
                 </span>
-                <span className={isTx ? 'text-accent-green' : 'text-zinc-200'}>
+                <span className={isMcpTx ? 'text-purple-300 font-semibold' : isTx ? 'text-accent-green' : 'text-zinc-200'}>
                   {displayPayload}
                 </span>
               </div>

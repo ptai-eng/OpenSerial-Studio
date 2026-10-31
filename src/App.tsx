@@ -32,7 +32,7 @@ import { PlusCircle, Trash2, Waves, Cpu, Thermometer, RotateCcw } from 'lucide-r
 export type { DemoPreset };
 
 function App() {
-  const { status, connect, disconnect, readLoop, write, writeBytes, error } = useWebSerial();
+  const { status, transportMode, setTransportMode, connect, disconnect, readLoop, write, writeBytes, error } = useWebSerial();
   const { isRecording, startRecording, stopRecording, clearLog, exportCSV, logData, logCount } =
     useDataLogger();
 
@@ -96,22 +96,27 @@ function App() {
 
   // Handle incoming serial data without dropping intermediate samples
   const handleData = useCallback(
-    (data: string, sampleTimestamp?: number, rawBytes?: Uint8Array) => {
-      const entry: TerminalLogItem = rawBytes
-        ? { text: data, isTx: false, rawBytes }
-        : data;
+    (data: string, sampleTimestamp?: number, rawBytes?: Uint8Array, isMcpTx = false) => {
+      const entry: TerminalLogItem = {
+        text: data,
+        isTx: isMcpTx,
+        isMcpTx,
+        rawBytes,
+      };
       logsBuffer.current.push(entry);
       if (logsBuffer.current.length > 300) {
         logsBuffer.current = logsBuffer.current.slice(-150);
       }
 
-      const frame = parseSerialPayloadDetailed(data, sampleTimestamp ?? Date.now());
-      if (frame) {
-        payloadQueueRef.current.push(frame);
-        if (payloadQueueRef.current.length > 512) {
-          payloadQueueRef.current = payloadQueueRef.current.slice(-256);
+      if (!isMcpTx) {
+        const frame = parseSerialPayloadDetailed(data, sampleTimestamp ?? Date.now());
+        if (frame) {
+          payloadQueueRef.current.push(frame);
+          if (payloadQueueRef.current.length > 512) {
+            payloadQueueRef.current = payloadQueueRef.current.slice(-256);
+          }
+          logData(frame.values);
         }
-        logData(frame.values);
       }
     },
     [logData]
@@ -141,7 +146,8 @@ function App() {
   useEffect(() => {
     if (status === 'connected') {
       readLoop(
-        (line) => handleData(line, undefined, latestRawChunkRef.current ?? undefined),
+        (line, isMcpTx, rawBytes) =>
+          handleData(line, undefined, rawBytes ?? (latestRawChunkRef.current ?? undefined), isMcpTx),
         (chunk) => handleRawChunk(chunk)
       );
     }
@@ -352,6 +358,8 @@ function App() {
       />
       <Header
         status={status}
+        transportMode={transportMode}
+        onSelectTransportMode={setTransportMode}
         onConnect={() => connect(baudRate)}
         onDisconnect={handleDisconnect}
         onOpenCodeGen={() => setIsCodeGenOpen(true)}
