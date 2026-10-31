@@ -2,53 +2,56 @@
   <img src="https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/cpu.svg" width="80" alt="OpenSerial Studio Logo"/>
   <br/>
   <h1>OpenSerial Studio</h1>
-  <h3>Universal, Zero-Config Web Serial Dashboard & Laboratory DSP Metrology Engine</h3>
-  <p>Seamlessly visualize, control, and analyze telemetry from ANY microcontroller in real-time right from your browser.</p>
+  <h3>Universal, Zero-Config Web Serial Dashboard, 64-Core GPU Framebuffer & Laboratory DSP Metrology Engine</h3>
+  <p>Seamlessly visualize, control, raymarch, and analyze telemetry from ANY microcontroller or multi-core RISC-V cluster in real-time right from your browser.</p>
 
   <p>
     <a href="https://react.dev/"><img src="https://img.shields.io/badge/React-19.2-61DAFB.svg?logo=react" alt="React 19"></a>
     <a href="https://vitejs.dev/"><img src="https://img.shields.io/badge/Vite-8.1-646CFF.svg?logo=vite" alt="Vite 8"></a>
     <a href="https://tailwindcss.com/"><img src="https://img.shields.io/badge/TailwindCSS-v4.3-38B2AC.svg?logo=tailwind-css" alt="Tailwind CSS v4"></a>
-    <a href="https://github.com/ptai-eng/OpenSerial-Studio/releases"><img src="https://img.shields.io/badge/Release-v3.0.0-purple.svg" alt="Release v3.0.0"></a>
+    <a href="https://github.com/ptai-eng/OpenSerial-Studio/releases"><img src="https://img.shields.io/badge/Release-v3.1.1-purple.svg" alt="Release v3.1.1"></a>
     <a href="https://modelcontextprotocol.io/"><img src="https://img.shields.io/badge/MCP-Compatible-green.svg" alt="MCP Compatible"></a>
     <a href="https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps"><img src="https://img.shields.io/badge/PWA-Ready-5A0FC8.svg?logo=pwa" alt="PWA Ready"></a>
     <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
   </p>
 
-  <img src="screenshot.png" width="100%" alt="OpenSerial Studio Dashboard Screenshot"/>
+  <img src="screenshot.png" width="100%" alt="OpenSerial Studio v3.1.1 Dashboard Screenshot"/>
 </div>
 
 ---
 
 ## 📖 Introduction
 
-**OpenSerial Studio** is an industrial-grade, platform-agnostic telemetry dashboard and signal metrology workstation built for electronics & telecommunications engineers, embedded firmware developers, and robotics researchers. It features a unique **Hybrid Dual-Transport Architecture**:
+**OpenSerial Studio** is an industrial-grade, platform-agnostic telemetry dashboard, 2D/3D hardware framebuffer visualizer, and signal metrology workstation built for electronics & telecommunications engineers, embedded firmware developers, and custom silicon/cluster researchers. It features a unique **Hybrid Dual-Transport Architecture**:
 1. **Zero-Install Web Serial Mode:** Connects directly from modern browsers (Chrome, Edge, Opera) to hardware COM ports via the native Web Serial API without requiring local installations or drivers.
-2. **Local Bridge Daemon & MCP Server Mode (`v3.0.0`):** Runs a lightweight local daemon multiplexing physical serial ports or closed-loop virtual simulators to both the Web Dashboard (`ws://127.0.0.1:8765`) and AI Coding Assistants (Claude, Cursor, Antigravity) via the official **Model Context Protocol (MCP)**.
+2. **Local Bridge Daemon & MCP Server Mode (`v3.0+`):** Runs a lightweight local daemon multiplexing physical serial ports or closed-loop virtual simulators (`dsp_harmonics`, `pid_motor`, `iot_env`, `raymarcher_gpu`) to both the Web Dashboard (`ws://127.0.0.1:8765`) and AI Coding Assistants (Claude, Cursor, Antigravity) via the official **Model Context Protocol (MCP)**.
+3. **64-Core RISC-V GPU Framebuffer & Workload Heatmap (`v3.1.1`):** Inspired by Bitluni's 64-core RISC-V clusters (WCH CH32V208 / CH32V003), OpenSerial Studio ingests real-time 8-byte bit-packed binary pixel streams alongside JSON telemetry, rendering crisp hardware-accelerated 2D/3D scenes with a 1-click **64-Core Golden-Ratio Workload Heatmap** overlay.
 
 ```mermaid
 flowchart TD
-    subgraph Hardware ["Hardware Layer / Virtual MCU"]
-        MCU["Physical Microcontroller\n(Arduino / STM32 / ESP32 / Pico)"]
-        SIM["Virtual MCU Simulator\n(DSP Harmonics / PID Motor / IoT)"]
+    subgraph Hardware ["Hardware Layer / Virtual MCU Cluster"]
+        MCU["Physical Microcontroller & Cluster\n(Arduino / STM32 / ESP32 / 64-Core CH32V208)"]
+        SIM["Virtual MCU Simulator\n(DSP Harmonics / PID Motor / IoT / 3D Raymarcher GPU)"]
     end
 
-    subgraph BridgeDaemon ["OpenSerial Bridge Daemon (v3.0)"]
+    subgraph BridgeDaemon ["OpenSerial Bridge Daemon (v3.1.1)"]
+        DEMUX["Stateful Binary/Text Stream Demuxer\n(8-Byte Pixel Stripper + UTF-8 Line Parser)"]
         MUX["Single-Owner Serial Multiplexer\n(Rate Limiter / Flasher Release Lock)"]
-        MCP["MCP Server (JSON-RPC stdio)\n5 Autonomous Tools"]
+        MCP["MCP Server (JSON-RPC stdio)\n6 Autonomous Tools"]
         WSS["WebSocket Server\n(ws://127.0.0.1:8765)"]
     end
 
     subgraph ClientLayer ["Clients & AI Ecosystem"]
-        WebUI["OpenSerial Web Dashboard\n(PWA / React 19 / Recharts)"]
+        WebUI["OpenSerial Web Dashboard\n(Canvas Framebuffer / FFT / Recharts)"]
         AI["AI Coding Agent\n(Claude / Cursor / Antigravity)"]
     end
 
     MCU -->|"Direct USB CDC"| WebUI
-    MCU -->|"Physical Serial"| MUX
-    SIM -->|"In-Memory Stream"| MUX
+    MCU -->|"Physical Serial"| DEMUX
+    SIM -->|"In-Memory Stream"| DEMUX
+    DEMUX --> MUX
     MUX <-->|"stdio JSON-RPC"| MCP <-->|"Tools"| AI
-    MUX <-->|"Telemetry & TX Echo"| WSS <-->|"WebSocket"| WebUI
+    MUX <-->|"Telemetry, Raw Hex & TX Echo"| WSS <-->|"WebSocket"| WebUI
 ```
 
 ---
@@ -59,15 +62,26 @@ flowchart TD
 - **JSON Telemetry:** Parses flat and nested JSON streams (`{"Temp": 25.4, "Vbat": 3.82, "IMU": {"roll": 1.2}}`) with automatic unit inference and explicit `{value, unit}` unwrapping.
 - **Serial Plotter Format:** Parses key-value pairs (`Temp:25.4,Humid:60,Status:READY`) and whitespace/tab-delimited streams with zero configuration.
 - **Raw CSV / TSV Streams:** Automatically routes multi-column numeric streams (`25.4, 60.2, 1023`) into channels `CH1`..`CHn`.
-- **True Binary HEX Sniffer:** Inspects raw `Uint8Array` byte packets (preserving bytes $\ge \text{0x80}$ without UTF-8 replacement character corruption) for debugging binary frames and Modbus RTU.
+- **True Binary HEX Sniffer & Transmitter (`tx_raw_hex`):** Inspects and transmits raw `Uint8Array` byte packets (preserving bytes $\ge \text{0x80}$ across both Web Serial and Bridge WebSocket without UTF-8 replacement character corruption) for debugging binary frames and Modbus RTU.
 
-### 2. Hardware Timebase & USB CDC Jitter Elimination
+### 2. 64-Core GPU Framebuffer & Stateful Binary Demuxer (`v3.1.1`)
+- **8-Byte Bit-Packed Binary Pixel Protocol:** Supports resolutions up to $512 \times 512$ (`160x120`, `80x60`, `320x240` presets) in a compact 8-byte frame without byte overflow:
+  - `Byte 0..1`: Magic Header `[0xAA, 0x55]`
+  - `Byte 2`: `X & 0xFF` (Low 8 bits of $X$)
+  - `Byte 3`: `Y & 0xFF` (Low 8 bits of $Y$)
+  - `Byte 4..6`: `R`, `G`, `B` ($0..255$ color channels)
+  - `Byte 7`: `(coreId & 0x3F) | (((X >> 8) & 0x01) << 6) | (((Y >> 8) & 0x01) << 7)` — packs 6-bit RISC-V `coreId` ($0..63$) together with the 9th bit of $X$ and $Y$.
+- **Stateful USB Bulk Transfer Demuxer (`StatefulBinaryDemuxer`):** Reassembles 8-byte pixel packets split across 64-byte USB CDC transfer boundaries and strips binary pixels out before UTF-8 line decoding, guaranteeing that coordinate or color bytes equal to `0x0A` (`10`) never trigger false newline breaks in the text parser.
+- **64-Core Workload Heatmap Overlay:** Switches seamlessly between true **RGB Render** mode and **64-Core Heatmap** mode using a Golden-Ratio Hue distribution ($\Delta H = 137.508^\circ$) so adjacent worker cores have maximum visual contrast.
+- **1-Click PNG Snapshot:** Exports the live hardware framebuffer directly to a timestamped `.png` image.
+
+### 3. Hardware Timebase & USB CDC Jitter Elimination
 - **The Physical Problem:** Operating system USB CDC host controllers poll bulk transfer endpoints in non-deterministic intervals (1 ms to 16 ms frames). Relying on browser arrival clocks causes severe artificial timing jitter when streaming at rates $> 100\text{ Hz}$.
 - **Hardware-Locked Timebase:** Automatically detects hardware timestamp fields (`t_us`, `time_us`, `t_ms`, `micros`, `millis`, `seq`, `n`) directly from microcontroller hardware timers.
 - **Widget Suppression:** Automatically extracts and strips hardware timebase keys from the widget pipeline, preventing noisy, climbing time graphs from cluttering the dashboard.
 - **32-Bit Microsecond Wrap-Around Handling:** Smoothly handles hardware timer roll-overs (such as `micros()` wrapping at $2^{32} \approx 4294.9\text{ seconds}$).
 
-### 3. Laboratory DSP & Numerical Methods Engine
+### 4. Laboratory DSP & Numerical Methods Engine
 - **In-Place Radix-2 Cooley-Tukey FFT:** $O(N \log_2 N)$ complex bit-reversal and butterfly factorization over power-of-two window sizes $N \in \{64, 128, 256, 512, 1024\}$.
 - **Leakage Suppression Windowing:**
   - **Hann Window:** $\displaystyle w[n] = 0.5 \left(1 - \cos\frac{2\pi n}{N-1}\right)$ (sidelobe attenuation $-31.5\text{ dB}$).
@@ -83,30 +97,29 @@ flowchart TD
 - **IEEE-1057 3-Parameter Sine Fit:** Linear least-squares analytical solution of $y(t) = A \cos(\omega_0 t) + B \sin(\omega_0 t) + C$ via Cramer's rule on normal equations matrix.
 - **Welch Power Spectral Density (PSD):** 50% overlapping Hann periodogram averaging for stationary noise characterization.
 
-### 4. 4-Platform Firmware Code Generator
+### 5. 4-Platform Firmware Code Generator (with `sendPixel512` GPU Helper)
 Instantly generates memory-safe, production-ready embedded firmware templates:
-- **Arduino C++ (ArduinoJson v7):** Zero dynamic heap allocations using a static `char rxBuffer[256]` line reader, with hardware PWM timer pin routing (`D3, D5, D6, D9, D10, D11`).
+- **Arduino C++ / ESP32 / WCH CH32V208 (ArduinoJson v7):** Zero dynamic heap allocations using a static `char rxBuffer[256]` line reader, hardware PWM timer pin routing (`D3, D5, D6, D9, D10, D11`), and inline `sendPixel512(x, y, r, g, b, coreId)` 8-byte bit-packed emitter.
 - **Zero-Library Arduino Serial Plotter:** Ultra-lightweight firmware without third-party dependencies.
-- **STM32 HAL C (Idle Line DMA):** `HAL_UARTEx_ReceiveToIdle_DMA` circular reception with atomic IRQ protection (`__disable_irq()` / `__enable_irq()`), half-transfer interrupt suppression, and `-u _printf_float` linker guidance.
-- **MicroPython (ESP32 & RP2040 Pico):** Non-blocking `select.poll` event loop with `duty_u16` PWM control and ADC1 pin routing (`GPIO 32..39`) to prevent driver panics when Wi-Fi is active.
+- **STM32 HAL C (Idle Line DMA):** `HAL_UARTEx_ReceiveToIdle_DMA` circular reception with atomic IRQ protection (`__disable_irq()` / `__enable_irq()`), half-transfer interrupt suppression, `OpenSerial_SendPixel512()`, and `-u _printf_float` linker guidance.
+- **MicroPython (ESP32 & RP2040 Pico):** Non-blocking `select.poll` event loop with `duty_u16` PWM control, `send_pixel_512()` binary packet writer, and ADC1 pin routing (`GPIO 32..39`) to prevent driver panics when Wi-Fi is active.
 
-### 5. Workspace Persistence & Profile Sharing
-- **Local Synchronization:** Preserves baud rate, FFT window size $N$, slider boundaries, and widget modes automatically in browser storage.
-- **Profile Export/Import:** Export and import complete hardware workspaces as portable `.json` files.
-
-### 6. Local Bridge Daemon & MCP Server Ecosystem (`v3.0.0`)
-- **Single-Owner Serial Multiplexer:** Solves the physical single-owner constraint of UART hardware. Web dashboards and AI assistants read and write simultaneously through a local WebSocket server (`ws://127.0.0.1:8765`).
-- **Closed-Loop Virtual MCU Simulator:** Provides 3 real-time hardware physics scenarios (`sim://dsp_harmonics`, `sim://pid_motor`, `sim://iot_env`) responding dynamically to incoming commands.
+### 6. Local Bridge Daemon & MCP Server Ecosystem (`v3.0+`)
+- **Single-Owner Serial Multiplexer:** Solves the physical single-owner constraint of UART hardware. Web dashboards and AI assistants read and write simultaneously through a local WebSocket server (`ws://127.0.0.1:8765`), complete with a **Header Target Port Selector** and **1-Click Flash Unlock (`released_for_flash`)** button.
+- **Closed-Loop Virtual MCU Simulator:** Provides 4 real-time hardware physics scenarios (`sim://dsp_harmonics`, `sim://pid_motor`, `sim://iot_env`, `sim://raymarcher_gpu`) responding dynamically to incoming commands.
 - **Standard Model Context Protocol (MCP) Tools:**
   - `serial_list_ports`: Enumerates available COM ports and virtual simulation channels.
   - `serial_connect`: Connects to hardware or virtual simulator.
-  - `serial_release_port`: Temporarily releases port lock for external CLI flashers (`arduino-cli`, `esptool`) without "Port busy" errors.
+  - `serial_release_port`: Temporarily releases port lock for external CLI flashers (`arduino-cli`, `esptool`, `wlink`) without "Port busy" errors.
   - `serial_read_telemetry`: Progressive token detail (`summary` vs `complete`), coverage tracking, and `_meta.provenance.untrusted_content = true` defense against indirect prompt injection.
   - `serial_send_command`: Injects command to hardware and broadcasts purple `[MCP TX]` badge on connected dashboards.
   - `serial_generate_firmware`: Generates target-specific embedded firmware.
 
 #### Quickstart OpenSerial Bridge Daemon:
 ```bash
+# Start bridge with virtual 64-Core 3D Raymarching GPU simulator
+$ npm run bridge -- --sim raymarcher_gpu
+
 # Start bridge with virtual PID motor simulator
 $ npm run bridge -- --sim pid_motor
 
@@ -118,7 +131,7 @@ $ npm run bridge -- --port COM3 --baud 115200
   "mcpServers": {
     "openserial": {
       "command": "node",
-      "args": ["C:/Users/PT/Downloads/Claude/OpenSerial-Studio/bridge/cli.ts", "--sim", "dsp_harmonics"]
+      "args": ["C:/Users/PT/Downloads/Claude/OpenSerial-Studio/bridge/cli.ts", "--sim", "raymarcher_gpu"]
     }
   }
 }
@@ -197,8 +210,8 @@ $$\text{RMSE} = \sqrt{\frac{1}{N}\sum_{n=0}^{N-1} \left(y_n - [A_0 \cos(\omega_0
 ## 🚀 Quick Start Guide
 
 ### System Requirements
-- Node.js (v18+ or v20+)
-- A Chromium-based browser (Google Chrome, Microsoft Edge, Opera, Brave) supporting the **Web Serial API**.
+- Node.js (v20+ or v24+)
+- A Chromium-based browser (Google Chrome, Microsoft Edge, Opera, Brave) supporting the **Web Serial API** (or any modern browser when using **Bridge WS** mode).
 
 ### Installation & Local Run
 
@@ -213,26 +226,43 @@ npm install
 # 3. Launch Vite development server
 npm run dev
 
-# 4. Execute test suite
+# 4. Execute full verification test suite (64 tests across 20 suites)
 npm test
 ```
 
 ---
 
-## 🔌 Hardware Telemetry Code Examples
+## 🔌 Hardware Telemetry & GPU Framebuffer Code Examples
 
-### 1. Arduino / ESP32 (Zero-Jitter Hardware Timebase)
+### 1. WCH CH32V208 / ESP32 / Arduino (8-Byte Bit-Packed GPU Pixel + JSON Telemetry)
 
 ```cpp
 #include <Arduino.h>
 #include <ArduinoJson.h>
+
+static inline void sendPixel512(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b, uint8_t coreId) {
+  uint8_t pkt[8] = {
+    0xAA,
+    0x55,
+    (uint8_t)(x & 0xFF),
+    (uint8_t)(y & 0xFF),
+    r,
+    g,
+    b,
+    (uint8_t)((coreId & 0x3F) | (((x >> 8) & 0x01) << 6) | (((y >> 8) & 0x01) << 7))
+  };
+  Serial.write(pkt, 8);
+}
 
 void setup() {
   Serial.begin(115200);
 }
 
 void loop() {
-  // Transmit at 100 Hz (10 ms interval)
+  // Emit a raymarched tile pixel from RISC-V Worker Core #12
+  sendPixel512(80, 60, 30, 190, 240, 12);
+
+  // Transmit companion JSON telemetry at 100 Hz (10 ms interval)
   static unsigned long lastSend = 0;
   if (micros() - lastSend >= 10000) {
     lastSend = micros();
@@ -240,7 +270,7 @@ void loop() {
     JsonDocument doc;
     doc["t_us"] = micros(); // Microsecond timebase eliminates USB CDC latency jitter
     doc["Voltage_V"] = analogRead(A0) * (5.0 / 1023.0);
-    doc["Current_mA"] = analogRead(A1) * (500.0 / 1023.0);
+    doc["Active_Cores"] = 64;
 
     serializeJson(doc, Serial);
     Serial.println();
@@ -255,6 +285,10 @@ import machine, time, json, sys
 
 adc = machine.ADC(machine.Pin(34)) # Safe ESP32 ADC1 pin
 last_tick = time.ticks_us()
+
+def send_pixel_512(x, y, r, g, b, core_id=0):
+    packed = (int(core_id) & 0x3F) | (((int(x) >> 8) & 0x01) << 6) | (((int(y) >> 8) & 0x01) << 7)
+    sys.stdout.buffer.write(bytes([0xAA, 0x55, x & 0xFF, y & 0xFF, r & 0xFF, g & 0xFF, b & 0xFF, packed]))
 
 while True:
     now = time.ticks_us()
@@ -285,9 +319,14 @@ $ npm test
 ▶ OpenSerial Studio v3.0 — Virtual MCU Simulator (Closed-Loop Physics) (3/3 PASS)
 ▶ OpenSerial Studio v3.0 — Serial Multiplexer & WebSocket Broadcast (3/3 PASS)
 ▶ OpenSerial Studio v3.0 — MCP Server Tool Contract (rea-tool-design) (6/6 PASS)
+▶ OpenSerial Studio v3.1 — Framebuffer Pixel Protocol & Ingestion (3/3 PASS)
+▶ OpenSerial Studio v3.1 — 64-Core RISC-V Heatmap Palette (3/3 PASS)
+▶ OpenSerial Studio v3.1 — 3D Raymarching Algorithm (2/2 PASS)
+▶ OpenSerial Studio v3.1 — Closed-Loop 64-Core GPU Simulator (2/2 PASS)
+▶ OpenSerial Studio v3.1 — Bridge Multiplexer & v3.1.1 Hardening Suite (5/5 PASS)
 ▶ OpenSerial Studio — Workspace Persistence & Profile Serialization (4/4 PASS)
 
-✔ All 49 tests passing across 15 suites (0 warnings, 0 errors)
+✔ All 64 tests passing across 20 suites (0 warnings, 0 errors)
 ```
 
 ---

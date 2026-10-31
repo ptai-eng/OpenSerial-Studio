@@ -253,7 +253,7 @@ export const CanvasWidget: React.FC<CanvasWidgetProps> = ({
           ref={canvasRef}
           width={resolution.width}
           height={resolution.height}
-          className="max-w-full max-h-[360px] object-contain rounded-lg border border-white/10 shadow-2xl"
+          className="h-[260px] w-auto object-contain rounded-lg border border-white/10 shadow-2xl"
           style={{
             imageRendering: 'pixelated',
             aspectRatio: `${resolution.width} / ${resolution.height}`,

@@ -30,7 +30,41 @@ export const RESOLUTION_PRESETS: ResolutionPreset[] = [
 
 export const BINARY_PIXEL_MAGIC_0 = 0xaa;
 export const BINARY_PIXEL_MAGIC_1 = 0x55;
-export const BINARY_PIXEL_PACKET_LEN = 8; // [0xAA, 0x55, X, Y, R, G, B, CORE_ID]
+export const BINARY_PIXEL_PACKET_LEN = 8; // [0xAA, 0x55, X_low, Y_low, R, G, B, CORE_AND_XY_HIGH]
+
+/**
+ * Encodes a PixelData object into an 8-byte binary frame with bit-packed 9-bit X/Y coordinates (0..511):
+ * Byte 0: 0xAA (Magic 0)
+ * Byte 1: 0x55 (Magic 1)
+ * Byte 2: X & 0xFF
+ * Byte 3: Y & 0xFF
+ * Byte 4: R & 0xFF
+ * Byte 5: G & 0xFF
+ * Byte 6: B & 0xFF
+ * Byte 7: (coreId & 0x3F) | (((X >> 8) & 0x01) << 6) | (((Y >> 8) & 0x01) << 7)
+ */
+export function encodeBinaryPixelPacket(px: PixelData): Uint8Array {
+  const x = Math.max(0, Math.min(511, Math.floor(px.x)));
+  const y = Math.max(0, Math.min(511, Math.floor(px.y)));
+  const r = Math.max(0, Math.min(255, Math.floor(px.r)));
+  const g = Math.max(0, Math.min(255, Math.floor(px.g)));
+  const b = Math.max(0, Math.min(255, Math.floor(px.b)));
+  const coreId = Math.max(0, Math.min(63, Math.floor(px.coreId)));
+
+  const packedCoreAndXYHigh =
+    (coreId & 0x3f) | (((x >> 8) & 0x01) << 6) | (((y >> 8) & 0x01) << 7);
+
+  return new Uint8Array([
+    BINARY_PIXEL_MAGIC_0,
+    BINARY_PIXEL_MAGIC_1,
+    x & 0xff,
+    y & 0xff,
+    r,
+    g,
+    b,
+    packedCoreAndXYHigh,
+  ]);
+}
 
 /**
  * Converts HSL color to RGB [0..255, 0..255, 0..255]
@@ -93,7 +127,10 @@ export function getCoreHeatmapRgb(coreId: number): [number, number, number] {
 
 /**
  * Parses binary byte stream chunks looking for 8-byte pixel packets:
- * Format: [0xAA, 0x55, X, Y, R, G, B, CORE_ID]
+ * Format: [0xAA, 0x55, X_low, Y_low, R, G, B, CORE_AND_XY_HIGH]
+ * Bit 0..5 of byte[7] = coreId (0..63)
+ * Bit 6 of byte[7] = X bit 8 (extends X to 0..511)
+ * Bit 7 of byte[7] = Y bit 8 (extends Y to 0..511)
  */
 export function parseBinaryPixelChunk(bytes: Uint8Array): PixelData[] {
   const pixels: PixelData[] = [];
@@ -101,12 +138,13 @@ export function parseBinaryPixelChunk(bytes: Uint8Array): PixelData[] {
 
   for (let i = 0; i <= len - BINARY_PIXEL_PACKET_LEN; i++) {
     if (bytes[i] === BINARY_PIXEL_MAGIC_0 && bytes[i + 1] === BINARY_PIXEL_MAGIC_1) {
-      const x = bytes[i + 2];
-      const y = bytes[i + 3];
+      const packed = bytes[i + 7];
+      const x = bytes[i + 2] | (((packed >> 6) & 0x01) << 8);
+      const y = bytes[i + 3] | (((packed >> 7) & 0x01) << 8);
       const r = bytes[i + 4];
       const g = bytes[i + 5];
       const b = bytes[i + 6];
-      const coreId = bytes[i + 7];
+      const coreId = packed & 0x3f;
 
       pixels.push({ x, y, r, g, b, coreId });
       i += BINARY_PIXEL_PACKET_LEN - 1; // Advance loop to end of packet
@@ -114,6 +152,75 @@ export function parseBinaryPixelChunk(bytes: Uint8Array): PixelData[] {
   }
 
   return pixels;
+}
+
+export interface DemuxedStreamResult {
+  pixels: PixelData[];
+  cleanTextBytes: Uint8Array;
+}
+
+/**
+ * Stateful Stream Demuxer (v3.1.1)
+ * Safely separates 8-byte [0xAA, 0x55, ...] binary pixel packets from interleaved
+ * UTF-8 text telemetry across arbitrary USB CDC / UART transfer chunk boundaries.
+ * Prevents 0x0A (10) bytes inside binary coordinates/colors from triggering false
+ * newline breaks in text parsers.
+ */
+export class StatefulBinaryDemuxer {
+  private remainder: Uint8Array = new Uint8Array(0);
+
+  public push(chunk: Uint8Array): DemuxedStreamResult {
+    if (chunk.length === 0) {
+      return { pixels: [], cleanTextBytes: new Uint8Array(0) };
+    }
+
+    const combined = new Uint8Array(this.remainder.length + chunk.length);
+    combined.set(this.remainder, 0);
+    combined.set(chunk, this.remainder.length);
+
+    const pixels: PixelData[] = [];
+    const textBytes: number[] = [];
+    let i = 0;
+    const len = combined.length;
+
+    while (i < len) {
+      if (combined[i] === BINARY_PIXEL_MAGIC_0) {
+        // Case 1: 0xAA is at the very last byte of the chunk -> could be start of [0xAA, 0x55]
+        if (i + 1 >= len) {
+          this.remainder = combined.slice(i);
+          return { pixels, cleanTextBytes: new Uint8Array(textBytes) };
+        }
+        // Case 2: [0xAA, 0x55] matched
+        if (combined[i + 1] === BINARY_PIXEL_MAGIC_1) {
+          if (i + BINARY_PIXEL_PACKET_LEN <= len) {
+            const packed = combined[i + 7];
+            const x = combined[i + 2] | (((packed >> 6) & 0x01) << 8);
+            const y = combined[i + 3] | (((packed >> 7) & 0x01) << 8);
+            const r = combined[i + 4];
+            const g = combined[i + 5];
+            const b = combined[i + 6];
+            const coreId = packed & 0x3f;
+            pixels.push({ x, y, r, g, b, coreId });
+            i += BINARY_PIXEL_PACKET_LEN;
+            continue;
+          } else {
+            // Incomplete 8-byte packet at end of USB transfer chunk -> carry over to next push()
+            this.remainder = combined.slice(i);
+            return { pixels, cleanTextBytes: new Uint8Array(textBytes) };
+          }
+        }
+      }
+      textBytes.push(combined[i]);
+      i++;
+    }
+
+    this.remainder = new Uint8Array(0);
+    return { pixels, cleanTextBytes: new Uint8Array(textBytes) };
+  }
+
+  public reset(): void {
+    this.remainder = new Uint8Array(0);
+  }
 }
 
 /**
@@ -206,7 +313,14 @@ export function raymarchPixel(
   rdy /= len;
   rdz /= len;
 
-  // Apply Camera Rotation (Yaw Y, Pitch X)
+  // Apply Camera Rotation (Orbit camera around origin at radius R = 2.6)
+  // Camera origin rotated by (rotXRad, rotYRad)
+  const dist = 2.6;
+  const rox = -dist * sinY * cosX;
+  const roy = dist * sinX;
+  const roz = -dist * cosY * cosX;
+
+  // Rotate camera ray direction into world space
   // 1. Pitch X
   const rdy1 = rdy * cosX - rdz * sinX;
   const rdz1 = rdy * sinX + rdz * cosX;
@@ -214,14 +328,10 @@ export function raymarchPixel(
   const rdx2 = rdx * cosY + rdz1 * sinY;
   const rdz2 = -rdx * sinY + rdz1 * cosY;
 
-  const rox = 0;
-  const roy = 0;
-  const roz = -2.6;
-
-  // Raymarch against a sphere of radius 1.0 at origin
+  // Raymarch against a sphere of radius 1.0 at origin with procedural surface bands
   let t = 0.0;
   let hit = false;
-  const maxSteps = 24;
+  const maxSteps = 28;
   const maxDist = 8.0;
 
   for (let i = 0; i < maxSteps; i++) {
@@ -229,15 +339,16 @@ export function raymarchPixel(
     const curY = roy + t * rdy1;
     const curZ = roz + t * rdz2;
 
-    // Signed Distance Field (SDF) of Sphere with subtle surface ribbing
+    // Signed Distance Field (SDF) of Sphere with subtle latitude/longitude geometric ribbing
     const distToCenter = Math.hypot(curX, curY, curZ);
-    const d = distToCenter - 1.0;
+    const rib = 0.03 * Math.sin(curY * 14.0) * Math.cos(curX * 14.0);
+    const d = distToCenter - 1.0 + rib;
 
     if (d < 0.005) {
       hit = true;
       break;
     }
-    t += d;
+    t += d * 0.85;
     if (t > maxDist) break;
   }
 

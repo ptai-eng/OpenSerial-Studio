@@ -5,7 +5,7 @@
  * while responding dynamically in real time to incoming control commands (PID tuning, frequency modulation, PWM, 3D Raymarching).
  */
 
-import { raymarchPixel } from '../src/lib/framebuffer.ts';
+import { raymarchPixel, encodeBinaryPixelPacket } from '../src/lib/framebuffer.ts';
 
 export type SimulationScenario = 'dsp_harmonics' | 'pid_motor' | 'iot_env' | 'raymarcher_gpu';
 
@@ -254,14 +254,9 @@ export class VirtualMcuSimulator {
             this.gpu.lightIntensity
           );
 
-          pixelBytes[byteIdx++] = 0xaa;
-          pixelBytes[byteIdx++] = 0x55;
-          pixelBytes[byteIdx++] = px.x;
-          pixelBytes[byteIdx++] = px.y;
-          pixelBytes[byteIdx++] = px.r;
-          pixelBytes[byteIdx++] = px.g;
-          pixelBytes[byteIdx++] = px.b;
-          pixelBytes[byteIdx++] = px.coreId;
+          const pkt = encodeBinaryPixelPacket(px);
+          pixelBytes.set(pkt, byteIdx);
+          byteIdx += 8;
         }
       }
 

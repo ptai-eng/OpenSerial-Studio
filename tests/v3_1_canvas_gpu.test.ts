@@ -1,16 +1,21 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
+import WebSocket from 'ws';
 import {
   parseBinaryPixelChunk,
+  encodeBinaryPixelPacket,
+  StatefulBinaryDemuxer,
   extractPixelsFromJson,
   getCoreHeatmapRgb,
   CORE_PALETTE,
   raymarchPixel,
   hslToRgb,
   RESOLUTION_PRESETS,
+  type PixelData,
 } from '../src/lib/framebuffer.ts';
 import { VirtualMcuSimulator } from '../bridge/virtualMcu.ts';
 import { SerialMultiplexer } from '../bridge/serialMux.ts';
+import { generateArduinoCode, generateSTM32Code, generateMicroPythonCode } from '../src/lib/codegen.ts';
 
 describe('OpenSerial Studio v3.1 — Framebuffer Pixel Protocol & Ingestion', () => {
   test('decodes single and multi-packet binary pixel streams ([0xAA, 0x55, X, Y, R, G, B, Core])', () => {
@@ -205,5 +210,79 @@ describe('OpenSerial Studio v3.1 — Bridge Multiplexer Raymarcher Channel', () 
 
     mux.disconnect();
     assert.strictEqual(mux.status, 'disconnected');
+  });
+
+  test('v3.1.1 Hardening: encodes and decodes 9-bit coordinates (up to 320x240 / 511x511) without byte overflow', () => {
+    const pxHigh: PixelData = { x: 319, y: 239, r: 240, g: 180, b: 90, coreId: 63 };
+    const encoded = encodeBinaryPixelPacket(pxHigh);
+    assert.strictEqual(encoded.length, 8);
+    assert.strictEqual(encoded[0], 0xaa);
+    assert.strictEqual(encoded[1], 0x55);
+
+    const decoded = parseBinaryPixelChunk(encoded);
+    assert.strictEqual(decoded.length, 1);
+    assert.deepStrictEqual(decoded[0], pxHigh);
+  });
+
+  test('v3.1.1 Hardening: StatefulBinaryDemuxer reassembles 8-byte packets split across USB transfer chunks and shields 0x0A bytes', () => {
+    const demuxer = new StatefulBinaryDemuxer();
+
+    // Packet with X=10 (0x0A, newline byte!) and Y=300 (bit-packed)
+    const pkt = encodeBinaryPixelPacket({ x: 10, y: 300, r: 10, g: 200, b: 10, coreId: 42 });
+    const textBefore = new TextEncoder().encode('{"Temp":25.5}\n');
+
+    // Split pkt into first 3 bytes and remaining 5 bytes across two USB chunks
+    const chunk1 = new Uint8Array(textBefore.length + 3);
+    chunk1.set(textBefore, 0);
+    chunk1.set(pkt.slice(0, 3), textBefore.length);
+
+    const chunk2 = pkt.slice(3);
+
+    const res1 = demuxer.push(chunk1);
+    assert.strictEqual(res1.pixels.length, 0);
+    assert.strictEqual(new TextDecoder().decode(res1.cleanTextBytes), '{"Temp":25.5}\n');
+
+    const res2 = demuxer.push(chunk2);
+    assert.strictEqual(res2.pixels.length, 1);
+    assert.strictEqual(res2.pixels[0].x, 10);
+    assert.strictEqual(res2.pixels[0].y, 300);
+    assert.strictEqual(res2.pixels[0].coreId, 42);
+    // Clean text bytes in chunk2 must be empty (0x0A inside pixel did not leak into text stream!)
+    assert.strictEqual(res2.cleanTextBytes.length, 0);
+  });
+
+  test('v3.1.1 Hardening: WebSocket tx_raw_hex preserves binary bytes >= 0x80 and supports release_port', async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${TEST_PORT}`);
+    await new Promise<void>((resolve) => ws.on('open', () => resolve()));
+
+    const echoes: any[] = [];
+    ws.on('message', (data) => {
+      const msg = JSON.parse(data.toString());
+      if (msg.type === 'tx_echo') echoes.push(msg);
+    });
+
+    ws.send(JSON.stringify({ type: 'tx_raw_hex', hex: 'AA 55 FF 80 0A 00 12 3F' }));
+    await new Promise((r) => setTimeout(r, 40));
+
+    assert.ok(echoes.length >= 1);
+    assert.strictEqual(echoes[0].rawHex, 'AA 55 FF 80 0A 00 12 3F');
+
+    ws.send(JSON.stringify({ type: 'release_port' }));
+    await new Promise((r) => setTimeout(r, 40));
+    assert.strictEqual(mux.status, 'released_for_flash');
+
+    ws.close();
+  });
+
+  test('v3.1.1 Hardening: Firmware Codegen includes sendPixel512 bit-packed helper across C++/STM32/MicroPython', () => {
+    const ino = generateArduinoCode(['GPU_FPS'], []);
+    assert.ok(ino.includes('sendPixel512(uint16_t x, uint16_t y'));
+    assert.ok(ino.includes('(((x >> 8) & 0x01) << 6)'));
+
+    const stm = generateSTM32Code(['GPU_FPS'], []);
+    assert.ok(stm.includes('OpenSerial_SendPixel512(uint16_t x, uint16_t y'));
+
+    const py = generateMicroPythonCode(['GPU_FPS'], []);
+    assert.ok(py.includes('def send_pixel_512(x, y, r, g, b, core_id=0):'));
   });
 });

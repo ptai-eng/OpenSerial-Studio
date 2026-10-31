@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plug, Zap, Settings, Activity, Code2, Download, Play, Square, Radio } from 'lucide-react';
+import { Plug, Zap, Settings, Activity, Code2, Download, Play, Square, Radio, Unlock, Lock } from 'lucide-react';
 import type { ConnectionStatus, TransportMode } from '../../hooks/useWebSerial';
 import { cn } from '../../lib/utils';
 
@@ -7,6 +7,9 @@ interface HeaderProps {
   status: ConnectionStatus;
   transportMode?: TransportMode;
   onSelectTransportMode?: (mode: TransportMode) => void;
+  bridgeStatus?: any;
+  onSelectBridgePort?: (port: string) => void;
+  onReleaseBridgePort?: () => void;
   onConnect: () => void;
   onDisconnect: () => void;
   onOpenCodeGen: () => void;
@@ -21,7 +24,8 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ 
-  status, transportMode = 'usb', onSelectTransportMode, onConnect, onDisconnect, onOpenCodeGen, onOpenSettings,
+  status, transportMode = 'usb', onSelectTransportMode, bridgeStatus, onSelectBridgePort, onReleaseBridgePort,
+  onConnect, onDisconnect, onOpenCodeGen, onOpenSettings,
   onDemo, isDemoMode, isRecording, onStartRecording, onStopRecording, onExportCSV, logCount
 }) => {
   return (
@@ -99,7 +103,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Connect Buttons */}
-        {status !== 'connected' && !isDemoMode ? (
+        {status !== 'connected' && status !== 'released_for_flash' && !isDemoMode ? (
           <div className="flex items-center gap-2">
             <button 
               onClick={onDemo}
@@ -119,6 +123,66 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         ) : (
           <>
+            {/* Bridge Target Port Selector & Flash Release Toggle */}
+            {transportMode === 'bridge' && (status === 'connected' || status === 'released_for_flash') && (
+              <div className="flex items-center gap-2 bg-purple-950/30 border border-purple-500/20 rounded-lg p-1">
+                <select
+                  value={bridgeStatus?.activePort || 'sim://dsp_harmonics'}
+                  onChange={(e) => onSelectBridgePort?.(e.target.value)}
+                  className="bg-zinc-950 border border-white/10 text-purple-200 text-xs rounded-md px-2 py-1 font-mono focus:outline-none focus:border-purple-400"
+                  title="Select Bridge Target Port or Simulator"
+                >
+                  {(bridgeStatus?.availablePorts?.length
+                    ? bridgeStatus.availablePorts
+                    : [
+                        { path: 'sim://dsp_harmonics' },
+                        { path: 'sim://pid_motor' },
+                        { path: 'sim://iot_env' },
+                        { path: 'sim://raymarcher_gpu' },
+                      ]
+                  ).map((p: any) => (
+                    <option key={p.path} value={p.path}>
+                      {p.path}
+                    </option>
+                  ))}
+                </select>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (status === 'released_for_flash') {
+                      onSelectBridgePort?.(bridgeStatus?.activePort || 'sim://dsp_harmonics');
+                    } else {
+                      onReleaseBridgePort?.();
+                    }
+                  }}
+                  className={cn(
+                    "flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-colors",
+                    status === 'released_for_flash'
+                      ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30"
+                      : "bg-zinc-900 text-zinc-300 hover:text-amber-300 hover:bg-zinc-800 border border-white/5"
+                  )}
+                  title={
+                    status === 'released_for_flash'
+                      ? "Re-lock port after firmware flashing"
+                      : "Release COM port lock temporarily so PlatformIO / esptool / STM32CubeProgrammer can flash firmware"
+                  }
+                >
+                  {status === 'released_for_flash' ? (
+                    <>
+                      <Lock className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Resume Port</span>
+                    </>
+                  ) : (
+                    <>
+                      <Unlock className="w-3.5 h-3.5 text-zinc-400" />
+                      <span>Flash Unlock</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+
             <div className="flex items-center gap-2 mr-4">
               <div className="flex items-center gap-2 bg-zinc-900/50 rounded-lg p-1 border border-white/5">
                 {!isRecording ? (
@@ -153,7 +217,7 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
 
             <button 
-              onClick={status === 'connected' ? onDisconnect : onDemo}
+              onClick={status === 'connected' || status === 'released_for_flash' ? onDisconnect : onDemo}
               className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded-lg font-semibold text-sm transition-all active:scale-95 border border-red-500/20"
             >
               <Zap className="w-4 h-4" />

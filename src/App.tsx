@@ -29,7 +29,7 @@ import {
   type ControlConfig,
 } from './lib/workspace';
 import {
-  parseBinaryPixelChunk,
+  StatefulBinaryDemuxer,
   extractPixelsFromJson,
   raymarchPixel,
   type PixelData,
@@ -39,7 +39,20 @@ import { PlusCircle, Trash2, Waves, Cpu, Thermometer, RotateCcw, Sparkles, Boxes
 export type { DemoPreset };
 
 function App() {
-  const { status, transportMode, setTransportMode, connect, disconnect, readLoop, write, writeBytes, error } = useWebSerial();
+  const {
+    status,
+    transportMode,
+    setTransportMode,
+    bridgeStatus,
+    selectBridgePort,
+    releaseBridgePort,
+    connect,
+    disconnect,
+    readLoop,
+    write,
+    writeBytes,
+    error,
+  } = useWebSerial();
   const { isRecording, startRecording, stopRecording, clearLog, exportCSV, logData, logCount } =
     useDataLogger();
 
@@ -97,8 +110,9 @@ function App() {
   const payloadQueueRef = useRef<ParsedTelemetryFrame[]>([]);
   const latestRawChunkRef = useRef<Uint8Array | null>(null);
 
-  // Framebuffer 3D Graphics State (v3.1)
+  // Framebuffer 3D Graphics State (v3.1.1)
   const incomingPixelsBufferRef = useRef<PixelData[]>([]);
+  const binaryDemuxerRef = useRef<StatefulBinaryDemuxer>(new StatefulBinaryDemuxer());
   const [incomingPixelsBatch, setIncomingPixelsBatch] = useState<PixelData[]>([]);
   const [showCanvasWidget, setShowCanvasWidget] = useState<boolean>(
     () => initialProfile?.demoPreset === 'raymarcher_gpu'
@@ -107,9 +121,9 @@ function App() {
 
   const handleRawChunk = useCallback((chunk: Uint8Array) => {
     latestRawChunkRef.current = chunk;
-    const pxs = parseBinaryPixelChunk(chunk);
-    if (pxs.length > 0) {
-      incomingPixelsBufferRef.current.push(...pxs);
+    const { pixels } = binaryDemuxerRef.current.push(chunk);
+    if (pixels.length > 0) {
+      incomingPixelsBufferRef.current.push(...pixels);
       setShowCanvasWidget(true);
     }
   }, []);
@@ -471,6 +485,9 @@ function App() {
         status={status}
         transportMode={transportMode}
         onSelectTransportMode={setTransportMode}
+        bridgeStatus={bridgeStatus}
+        onSelectBridgePort={(port) => selectBridgePort(port, baudRate)}
+        onReleaseBridgePort={releaseBridgePort}
         onConnect={() => connect(baudRate)}
         onDisconnect={handleDisconnect}
         onOpenCodeGen={() => setIsCodeGenOpen(true)}

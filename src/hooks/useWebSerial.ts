@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { parseHexInput } from '../lib/parser';
+import { parseHexInput, toHexString } from '../lib/parser';
+import { StatefulBinaryDemuxer } from '../lib/framebuffer';
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'released_for_flash' | 'error';
 export type TransportMode = 'usb' | 'bridge';
@@ -58,6 +59,11 @@ export function useWebSerial() {
             }
             if (bridgeCallbacksRef.current.onData) {
               bridgeCallbacksRef.current.onData(msg.line, false, rawBytes);
+            }
+          } else if (msg.type === 'rx_raw' && typeof msg.rawHex === 'string') {
+            const rawBytes = parseHexInput(msg.rawHex) ?? undefined;
+            if (rawBytes && bridgeCallbacksRef.current.onRawData) {
+              bridgeCallbacksRef.current.onRawData(rawBytes);
             }
           } else if (msg.type === 'tx_echo') {
             const isMcp = msg.origin === 'mcp';
@@ -202,8 +208,7 @@ export function useWebSerial() {
 
     if (transportMode === 'bridge') {
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        const text = new TextDecoder().decode(bytes);
-        wsRef.current.send(JSON.stringify({ type: 'tx_command', payload: text }));
+        wsRef.current.send(JSON.stringify({ type: 'tx_raw_hex', hex: toHexString(bytes) }));
       }
       return;
     }
@@ -220,6 +225,18 @@ export function useWebSerial() {
       setError(err?.message || 'Failed to write data');
     }
   }, [status, transportMode]);
+
+  const selectBridgePort = useCallback((port: string, baudRate = 115200) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'connect', port, baudRate }));
+    }
+  }, []);
+
+  const releaseBridgePort = useCallback(() => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'release_port' }));
+    }
+  }, []);
 
   const write = useCallback(async (data: string) => {
     if (transportMode === 'bridge') {
@@ -253,6 +270,7 @@ export function useWebSerial() {
         readerRef.current = reader;
 
         const decoder = new TextDecoder('utf-8', { fatal: false, ignoreBOM: true });
+        const usbDemuxer = new StatefulBinaryDemuxer();
         let buffer = '';
 
         while (keepReadingRef.current && portRef.current) {
@@ -269,14 +287,17 @@ export function useWebSerial() {
               }
             }
 
-            // 2. Decode streaming UTF-8 text line buffer
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split(/\r?\n/);
-            buffer = lines.pop() || '';
+            // 2. Strip 8-byte binary pixel packets so 0x0A coordinates do not cause fake line splits
+            const { cleanTextBytes } = usbDemuxer.push(value);
+            if (cleanTextBytes.length > 0) {
+              buffer += decoder.decode(cleanTextBytes, { stream: true });
+              const lines = buffer.split(/\r?\n/);
+              buffer = lines.pop() || '';
 
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (trimmed) onDataReceived(trimmed, false, value);
+              for (const line of lines) {
+                const trimmed = line.trim();
+                if (trimmed) onDataReceived(trimmed, false, value);
+              }
             }
           }
         }
@@ -307,6 +328,8 @@ export function useWebSerial() {
     transportMode,
     setTransportMode,
     bridgeStatus,
+    selectBridgePort,
+    releaseBridgePort,
     error,
     connect,
     disconnect,

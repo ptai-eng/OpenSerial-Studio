@@ -29,9 +29,9 @@ export function generateArduinoCode(widgets: string[], controls: ControlSpec[]):
   const txWidgets = hasTx ? widgets : ['Temperature', 'Humidity'];
 
   let code = `/*
- * OpenSerial Studio v2.0 — Auto-Generated Firmware
- * Target: Arduino (Uno, Mega, Nano) / ESP32 / ESP8266
- * Protocol: JSON over UART (115200 bps)
+ * OpenSerial Studio v3.1.1 — Auto-Generated Firmware
+ * Target: Arduino (Uno, Mega, Nano) / ESP32 / WCH CH32V208 (RISC-V)
+ * Protocol: JSON + 8-Byte Bit-Packed Framebuffer over UART (115200 bps)
  * Dependency: ArduinoJson v7+ (install via Library Manager)
  * Memory Safety: Uses static char rxBuffer (zero String heap fragmentation)
  */
@@ -41,6 +41,24 @@ export function generateArduinoCode(widgets: string[], controls: ControlSpec[]):
 
 unsigned long lastSendTime = 0;
 const unsigned long SEND_INTERVAL_MS = 100; // 10 Hz telemetry rate
+
+/**
+ * 64-Core GPU Framebuffer Helper (v3.1.1 Bit-Packed 9-Bit Coordinates 0..511)
+ * Emits 8-byte binary pixel packet: [0xAA, 0x55, X_low, Y_low, R, G, B, CORE_AND_XY_HIGH]
+ */
+static inline void sendPixel512(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b, uint8_t coreId) {
+  uint8_t pkt[8] = {
+    0xAA,
+    0x55,
+    (uint8_t)(x & 0xFF),
+    (uint8_t)(y & 0xFF),
+    r,
+    g,
+    b,
+    (uint8_t)((coreId & 0x3F) | (((x >> 8) & 0x01) << 6) | (((y >> 8) & 0x01) << 7))
+  };
+  Serial.write(pkt, 8);
+}
 
 `;
 
@@ -271,7 +289,7 @@ export function generateSTM32Code(widgets: string[], controls: ControlSpec[]): s
   const txWidgets = hasTx ? widgets : ['Temperature', 'Voltage_V'];
 
   let code = `/*
- * OpenSerial Studio v2.1.1 — STM32 HAL Firmware Template
+ * OpenSerial Studio v3.1.1 — STM32 HAL Firmware Template
  * Target: STM32F1 / STM32F4 / STM32G4 / STM32H7 (STM32CubeIDE)
  * UART Peripheral: huart2 (115200-8-N-1, DMA / Interrupt RX enabled)
  *
@@ -289,6 +307,24 @@ extern UART_HandleTypeDef huart2;
 
 #define UART_RX_BUF_SIZE 256
 #define UART_TX_BUF_SIZE 256
+
+/**
+ * 64-Core GPU Framebuffer Helper (v3.1.1 Bit-Packed 9-Bit Coordinates 0..511)
+ * Emits 8-byte binary pixel packet: [0xAA, 0x55, X_low, Y_low, R, G, B, CORE_AND_XY_HIGH]
+ */
+static inline void OpenSerial_SendPixel512(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b, uint8_t coreId) {
+    uint8_t pkt[8] = {
+        0xAA,
+        0x55,
+        (uint8_t)(x & 0xFF),
+        (uint8_t)(y & 0xFF),
+        r,
+        g,
+        b,
+        (uint8_t)((coreId & 0x3F) | (((x >> 8) & 0x01) << 6) | (((y >> 8) & 0x01) << 7))
+    };
+    HAL_UART_Transmit(&huart2, pkt, 8, 10);
+}
 
 static uint8_t rxDmaBuffer[UART_RX_BUF_SIZE];
 static volatile char rxCommandLine[UART_RX_BUF_SIZE];
@@ -438,6 +474,12 @@ def set_pwm_level(pwm_obj, val_0_to_255):
         pwm_obj.duty_u16(int(clamped * 65535 / 255))
     else:
         pwm_obj.duty(int(clamped * 1023 / 255))
+
+def send_pixel_512(x, y, r, g, b, core_id=0):
+    """Emits 8-byte bit-packed binary pixel frame ([0xAA, 0x55, X_low, Y_low, R, G, B, CORE_XY_HIGH])"""
+    packed = (int(core_id) & 0x3F) | (((int(x) >> 8) & 0x01) << 6) | (((int(y) >> 8) & 0x01) << 7)
+    pkt = bytes([0xAA, 0x55, int(x) & 0xFF, int(y) & 0xFF, int(r) & 0xFF, int(g) & 0xFF, int(b) & 0xFF, packed])
+    sys.stdout.buffer.write(pkt)
 
 last_send_ms = time.ticks_ms()
 SEND_INTERVAL_MS = 100

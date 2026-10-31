@@ -91,7 +91,7 @@ export const CodeGeneratorModal: React.FC<CodeGeneratorModalProps> = ({
           <div className="flex items-center gap-2.5">
             <Code2 className="w-5 h-5 text-accent-blue" />
             <div>
-              <h2 className="text-lg font-bold text-zinc-100">Auto Firmware Code Generator v2.0</h2>
+              <h2 className="text-lg font-bold text-zinc-100">Auto Firmware Code Generator v3.1.1</h2>
               <p className="text-xs text-zinc-400">{currentPlatform.subtitle}</p>
             </div>
           </div>

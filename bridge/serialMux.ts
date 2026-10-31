@@ -4,6 +4,7 @@ import {
   parseSerialPayloadDetailed,
   extractWidgetsFromBatch,
   toHexString,
+  parseHexInput,
   type ParsedTelemetryFrame,
   type WidgetConfig,
 } from '../src/lib/parser.ts';
@@ -11,6 +12,7 @@ import {
   analyzeSignalAndSpectrum,
   type SignalMetrics,
 } from '../src/lib/dsp.ts';
+import { StatefulBinaryDemuxer } from '../src/lib/framebuffer.ts';
 
 export interface SerialPortInfo {
   path: string;
@@ -28,6 +30,7 @@ export interface MultiplexerStatus {
   totalFramesReceived: number;
   totalCommandsSent: number;
   droppedFrames: number;
+  availablePorts?: SerialPortInfo[];
 }
 
 export interface TelemetrySummaryResponse {
@@ -64,6 +67,13 @@ export class SerialMultiplexer {
   private wsClients: Set<WebSocket> = new Set();
   private simulator: VirtualMcuSimulator | null = null;
   private physicalPort: any = null;
+  private demuxer: StatefulBinaryDemuxer = new StatefulBinaryDemuxer();
+  private cachedPorts: SerialPortInfo[] = [
+    { path: 'sim://dsp_harmonics', manufacturer: 'OpenSerial Simulation', isVirtual: true },
+    { path: 'sim://pid_motor', manufacturer: 'OpenSerial Simulation', isVirtual: true },
+    { path: 'sim://iot_env', manufacturer: 'OpenSerial Simulation', isVirtual: true },
+    { path: 'sim://raymarcher_gpu', manufacturer: 'OpenSerial Simulation', isVirtual: true },
+  ];
 
   private frameBuffer: ParsedTelemetryFrame[] = [];
   private widgetsMap: Map<string, WidgetConfig> = new Map();
@@ -97,10 +107,12 @@ export class SerialMultiplexer {
         this.wss.on('connection', (ws) => {
           this.wsClients.add(ws);
 
-          // Send immediate handshake with current status
-          this.sendToClient(ws, {
-            type: 'status',
-            data: this.getStatus(),
+          // Send immediate handshake with current status and enumerated ports
+          this.listPorts().then(() => {
+            this.sendToClient(ws, {
+              type: 'status',
+              data: this.getStatus(),
+            });
           });
 
           ws.on('message', (data) => {
@@ -108,8 +120,20 @@ export class SerialMultiplexer {
               const msg = JSON.parse(data.toString());
               if (msg.type === 'tx_command' && typeof msg.payload === 'string') {
                 this.sendCommand(msg.payload, 'web');
+              } else if (msg.type === 'tx_raw_hex' && typeof msg.hex === 'string') {
+                const rawBytes = parseHexInput(msg.hex);
+                if (rawBytes) {
+                  this.sendRawBytes(rawBytes, 'web');
+                }
               } else if (msg.type === 'connect' && typeof msg.port === 'string') {
                 this.connectPort(msg.port, msg.baudRate ?? 115200);
+              } else if (msg.type === 'release_port') {
+                this.releasePort();
+              } else if (msg.type === 'list_ports') {
+                this.listPorts().then((ports) => {
+                  this.sendToClient(ws, { type: 'ports_list', ports });
+                  this.broadcastStatus();
+                });
               } else if (msg.type === 'disconnect') {
                 this.disconnect();
               }
@@ -176,6 +200,7 @@ export class SerialMultiplexer {
       // serialport not available; virtual ports always available
     }
 
+    this.cachedPorts = ports;
     return ports;
   }
 
@@ -188,9 +213,11 @@ export class SerialMultiplexer {
 
   public async connectPort(portName: string, baudRate = 115200): Promise<boolean> {
     this.disconnect();
+    this.demuxer.reset();
     this.activePort = portName;
     this.baudRate = baudRate;
     this.status = 'connecting';
+    await this.listPorts();
     this.broadcastStatus();
 
     if (portName.startsWith('sim://')) {
@@ -227,16 +254,31 @@ export class SerialMultiplexer {
       });
 
       let lineBuffer = '';
+      const textDecoder = new TextDecoder('utf-8', { fatal: false, ignoreBOM: true });
+
       this.physicalPort.on('data', (chunk: Buffer) => {
         const rawBytes = new Uint8Array(chunk);
-        lineBuffer += chunk.toString('utf-8');
-        const lines = lineBuffer.split(/\r?\n/);
-        lineBuffer = lines.pop() || '';
+        const { pixels, cleanTextBytes } = this.demuxer.push(rawBytes);
 
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed) {
-            this.handleIncomingData(trimmed, rawBytes);
+        // If binary pixel packets were extracted and there are no text lines, broadcast raw chunk immediately
+        if (pixels.length > 0 && cleanTextBytes.length === 0) {
+          this.broadcast({
+            type: 'rx_raw',
+            rawHex: toHexString(rawBytes),
+            timestamp: Date.now(),
+          });
+        }
+
+        if (cleanTextBytes.length > 0) {
+          lineBuffer += textDecoder.decode(cleanTextBytes, { stream: true });
+          const lines = lineBuffer.split(/\r?\n/);
+          lineBuffer = lines.pop() || '';
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed) {
+              this.handleIncomingData(trimmed, rawBytes);
+            }
           }
         }
       });
@@ -333,6 +375,30 @@ export class SerialMultiplexer {
   }
 
   /**
+   * Sends raw binary bytes (e.g. Modbus RTU, custom bootloader frames) without UTF-8 loss.
+   */
+  public sendRawBytes(bytes: Uint8Array, origin: 'web' | 'mcp' = 'web'): boolean {
+    if (!bytes || bytes.length === 0) return false;
+    const now = Date.now();
+    this.totalCommandsSent++;
+
+    if (this.physicalPort && this.status === 'connected') {
+      this.physicalPort.write(Buffer.from(bytes));
+    }
+
+    const hex = toHexString(bytes);
+    this.broadcast({
+      type: 'tx_echo',
+      origin,
+      text: `[HEX] ${hex}`,
+      rawHex: hex,
+      timestamp: now,
+    });
+
+    return true;
+  }
+
+  /**
    * Ingests line of telemetry from physical UART or simulator.
    */
   private handleIncomingData(data: string, rawBytes?: Uint8Array): void {
@@ -421,6 +487,7 @@ export class SerialMultiplexer {
       totalFramesReceived: this.totalFramesReceived,
       totalCommandsSent: this.totalCommandsSent,
       droppedFrames: this.droppedFrames,
+      availablePorts: this.cachedPorts,
     };
   }
 
