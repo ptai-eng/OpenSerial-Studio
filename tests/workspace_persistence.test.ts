@@ -29,7 +29,7 @@ describe('OpenSerial Studio — Workspace Persistence & Profile Serialization', 
 
     const parsed = parseWorkspaceProfile(raw);
     assert.ok(parsed);
-    assert.equal(parsed.version, '2.2');
+    assert.equal(parsed.version, '3.2');
     assert.equal(parsed.name, 'STM32 Lab Profile');
     assert.equal(parsed.baudRate, 921600);
     assert.equal(parsed.bufferSize, 512);
