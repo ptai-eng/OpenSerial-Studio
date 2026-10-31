@@ -135,6 +135,7 @@ const unsigned long SEND_INTERVAL_MS = 100; // 10 Hz telemetry rate
     code += `  if (now - lastSendTime >= SEND_INTERVAL_MS) {\n`;
     code += `    lastSendTime = now;\n\n`;
     code += `    JsonDocument doc;\n`;
+    code += `    doc["t_us"] = micros(); // Microsecond hardware timebase (zero USB CDC jitter)\n`;
     txWidgets.forEach((w) => {
       const ident = sanitizeIdentifier(w);
       code += `    doc["${w}"] = analogRead(${ident}_PIN);\n`;
@@ -243,6 +244,9 @@ const unsigned long SEND_INTERVAL_MS = 50; // 20 Hz fast plotter stream
 
   code += `  if (millis() - lastSendTime >= SEND_INTERVAL_MS) {\n`;
   code += `    lastSendTime = millis();\n`;
+  code += `    Serial.print("t_us:");\n`;
+  code += `    Serial.print(micros());\n`;
+  code += `    Serial.print(",");\n`;
   txWidgets.forEach((w, idx) => {
     const ident = sanitizeIdentifier(w);
     code += `    Serial.print("${w}:");\n`;
@@ -370,7 +374,7 @@ void OpenSerial_Task(void) {
   const formatParts = txWidgets.map((w) => `\\"${w}\\":%.2f`).join(',');
   const argParts = txWidgets.map((_, idx) => `${(24.5 + idx * 3.2).toFixed(2)}f`).join(', ');
 
-  code += `        int len = snprintf(txBuf, sizeof(txBuf), "{${formatParts}}\\r\\n", ${argParts});\n`;
+  code += `        int len = snprintf(txBuf, sizeof(txBuf), "{\\"t_us\\":%lu,${formatParts}}\\r\\n", (unsigned long)(HAL_GetTick() * 1000), ${argParts});\n`;
   code += `        if (len > 0) {\n`;
   code += `            HAL_UART_Transmit(&huart2, (uint8_t *)txBuf, (uint16_t)len, 20);\n`;
   code += `        }\n`;
@@ -470,6 +474,7 @@ while True:
     code += `    if time.ticks_diff(now_ms, last_send_ms) >= SEND_INTERVAL_MS:\n`;
     code += `        last_send_ms = now_ms\n`;
     code += `        payload = {\n`;
+    code += `            "t_us": time.ticks_us(),\n`;
     txWidgets.forEach((w) => {
       const ident = sanitizeIdentifier(w);
       code += `            "${w}": round(${ident}_adc.read_u16() * 100.0 / 65535.0, 2),\n`;

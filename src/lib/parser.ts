@@ -4,6 +4,8 @@ export interface DataPoint {
   time: string;
   timestamp: number;
   value: number;
+  hardwareTimestampUs?: number;
+  sampleSeq?: number;
 }
 
 export interface WidgetConfig {
@@ -22,6 +24,8 @@ export interface ParsedTelemetryFrame {
   values: Record<string, number | string | boolean>;
   units: Record<string, string>;
   timestamp: number;
+  hardwareTimestampUs?: number;
+  sampleSeq?: number;
 }
 
 const MAX_DEFAULT_HISTORY = 128;
@@ -217,6 +221,67 @@ function parseCsvStream(trimmed: string): Record<string, number> | null {
   return values;
 }
 
+export const HARDWARE_TIME_US_KEYS = ['t_us', 'time_us', 'micros', 'timestamp_us', 't_usec'] as const;
+export const HARDWARE_TIME_MS_KEYS = ['t_ms', 'time_ms', 'millis', 'timestamp_ms', 't_msec'] as const;
+export const HARDWARE_SEQ_KEYS = ['seq', 'sample_idx', 'sample_seq', 'n'] as const;
+
+export function extractHardwareTimebase(
+  values: Record<string, number | string | boolean>,
+  units: Record<string, string>,
+  baseArrivalMs: number
+): {
+  hardwareTimestampUs?: number;
+  sampleSeq?: number;
+  effectiveTimestampMs: number;
+} {
+  let hardwareTimestampUs: number | undefined;
+  let sampleSeq: number | undefined;
+
+  // 1. Check for microsecond timestamps
+  for (const k of HARDWARE_TIME_US_KEYS) {
+    if (k in values && typeof values[k] === 'number' && Number.isFinite(values[k])) {
+      const us = values[k] as number;
+      if (us >= 0) {
+        hardwareTimestampUs = us;
+        delete values[k];
+        delete units[k];
+        break;
+      }
+    }
+  }
+
+  // 2. Check for millisecond timestamps if not already found in us
+  if (hardwareTimestampUs === undefined) {
+    for (const k of HARDWARE_TIME_MS_KEYS) {
+      if (k in values && typeof values[k] === 'number' && Number.isFinite(values[k])) {
+        const ms = values[k] as number;
+        if (ms >= 0) {
+          hardwareTimestampUs = ms * 1000;
+          delete values[k];
+          delete units[k];
+          break;
+        }
+      }
+    }
+  }
+
+  // 3. Check for sample sequence counter
+  for (const k of HARDWARE_SEQ_KEYS) {
+    if (k in values && typeof values[k] === 'number' && Number.isFinite(values[k])) {
+      sampleSeq = Math.floor(values[k] as number);
+      delete values[k];
+      delete units[k];
+      break;
+    }
+  }
+
+  return {
+    hardwareTimestampUs,
+    sampleSeq,
+    effectiveTimestampMs: baseArrivalMs,
+  };
+}
+
 /**
  * Detailed multi-protocol telemetry parser:
  * Supports JSON (flat & nested), Arduino Serial Plotter (Key:Value / Key=Value), and Raw CSV streams.
@@ -233,8 +298,16 @@ export function parseSerialPayloadDetailed(rawText: string, timestamp = Date.now
         const values: Record<string, number | string | boolean> = {};
         const units: Record<string, string> = {};
         flattenJsonPayload(parsed as Record<string, unknown>, '', 0, values, units);
+        const tb = extractHardwareTimebase(values, units, timestamp);
         if (Object.keys(values).length > 0) {
-          return { protocol: 'json', values, units, timestamp };
+          return {
+            protocol: 'json',
+            values,
+            units,
+            timestamp: tb.effectiveTimestampMs,
+            hardwareTimestampUs: tb.hardwareTimestampUs,
+            sampleSeq: tb.sampleSeq,
+          };
         }
       }
     } catch {
@@ -245,12 +318,17 @@ export function parseSerialPayloadDetailed(rawText: string, timestamp = Date.now
   // 2. Try Key:Value / Key=Value (Arduino Serial Plotter format)
   const kv = parsePlotterKeyValue(trimmed);
   if (kv) {
-    return {
-      protocol: 'plotter',
-      values: kv.values,
-      units: kv.units,
-      timestamp,
-    };
+    const tb = extractHardwareTimebase(kv.values, kv.units, timestamp);
+    if (Object.keys(kv.values).length > 0) {
+      return {
+        protocol: 'plotter',
+        values: kv.values,
+        units: kv.units,
+        timestamp: tb.effectiveTimestampMs,
+        hardwareTimestampUs: tb.hardwareTimestampUs,
+        sampleSeq: tb.sampleSeq,
+      };
+    }
   }
 
   // 3. Try Raw CSV / TSV numeric stream
@@ -303,7 +381,16 @@ export function extractWidgetsFromBatch(
       if (existing) {
         const updatedHistory =
           typeof value === 'number'
-            ? [...existing.history, { time: timeLabel, timestamp: frame.timestamp, value }].slice(-maxHistory)
+            ? [
+                ...existing.history,
+                {
+                  time: timeLabel,
+                  timestamp: frame.timestamp,
+                  value,
+                  hardwareTimestampUs: frame.hardwareTimestampUs,
+                  sampleSeq: frame.sampleSeq,
+                },
+              ].slice(-maxHistory)
             : existing.history;
 
         nextWidgets.set(key, {
@@ -317,7 +404,15 @@ export function extractWidgetsFromBatch(
       } else {
         const initialHistory: DataPoint[] =
           typeof value === 'number'
-            ? [{ time: timeLabel, timestamp: frame.timestamp, value }]
+            ? [
+                {
+                  time: timeLabel,
+                  timestamp: frame.timestamp,
+                  value,
+                  hardwareTimestampUs: frame.hardwareTimestampUs,
+                  sampleSeq: frame.sampleSeq,
+                },
+              ]
             : [];
 
         nextWidgets.set(key, {

@@ -1,13 +1,13 @@
 {
   "name": "openserial-studio",
   "private": true,
-  "version": "2.2.0",
+  "version": "2.3.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "test": "node --test tests/v2_0_telemetry_codegen.test.ts tests/v2_1_dsp_fft.test.ts tests/v2_1_1_bugfixes.test.ts tests/workspace_persistence.test.ts",
+    "test": "node --test tests/v2_0_telemetry_codegen.test.ts tests/v2_1_dsp_fft.test.ts tests/v2_1_1_bugfixes.test.ts tests/workspace_persistence.test.ts tests/v2_3_hardware_timebase_dsp.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {

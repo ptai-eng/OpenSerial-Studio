@@ -16,6 +16,7 @@ import type { DataPoint } from '../../lib/parser';
 import {
   analyzeSignalAndSpectrum,
   type WindowFunctionType,
+  type PeakInterpolationMethod,
 } from '../../lib/dsp';
 import type { ChartType } from '../../lib/workspace';
 
@@ -109,6 +110,7 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
     data: DataPoint[];
   } | null>(null);
   const [windowType, setWindowType] = useState<WindowFunctionType>('hann');
+  const [interpMethod, setInterpMethod] = useState<PeakInterpolationMethod>('gaussian_log');
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -144,8 +146,8 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
   };
 
   const { metrics, spectrum } = useMemo(
-    () => analyzeSignalAndSpectrum(activeData, windowType),
-    [activeData, windowType]
+    () => analyzeSignalAndSpectrum(activeData, windowType, undefined, interpMethod),
+    [activeData, windowType, interpMethod]
   );
 
   // Exclude DC bin (k=0) from AC spectral bar plot since zero-mean subtraction is applied
@@ -159,7 +161,8 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
   return (
     <div
       className={cn(
-        'bg-zinc-900 border rounded-2xl p-4 flex flex-col h-76 relative transition-colors',
+        'bg-zinc-900 border rounded-2xl p-4 flex flex-col relative transition-colors',
+        displayType === 'fft' ? 'min-h-[330px]' : 'h-76',
         isPaused ? 'border-amber-400/30' : 'border-white/5'
       )}
     >
@@ -289,6 +292,21 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
                 {w === 'rectangular' ? 'Rect' : w}
               </button>
             ))}
+            <span className="text-zinc-700">|</span>
+            <button
+              type="button"
+              onClick={() =>
+                setInterpMethod(interpMethod === 'gaussian_log' ? 'lagrange_linear' : 'gaussian_log')
+              }
+              title={`Interpolation Method: ${
+                interpMethod === 'gaussian_log'
+                  ? 'Gaussian Log-Parabolic (unbiased for Hann/bell windows)'
+                  : 'Lagrange Linear Parabolic'
+              }`}
+              className="px-1.5 py-0.5 rounded text-[9px] font-mono text-purple-300 bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20 transition-colors"
+            >
+              {interpMethod === 'gaussian_log' ? 'LogPeak' : 'LinLagrange'}
+            </button>
           </div>
         </div>
       )}
@@ -415,28 +433,63 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
         <div
           className="truncate"
           title={`Effective Sample Rate (Nyquist: ${metrics.nyquistHz} Hz)${
-            metrics.isJitterHigh
-              ? ` — ⚠️ High Inter-Sample Jitter: ${metrics.jitterPercent}% (σ=${metrics.jitterMs}ms)`
-              : ''
+            metrics.hasHardwareTiming
+              ? ' — ⚡ Synchronized with MCU hardware microsecond timer (zero USB latency jitter)'
+              : metrics.isJitterHigh
+                ? ` — ⚠️ High Inter-Sample Jitter: ${metrics.jitterPercent}% (σ=${metrics.jitterMs}ms)`
+                : ''
           }`}
         >
           Fs{' '}
           <span className={metrics.isJitterHigh ? 'text-amber-400 font-semibold' : 'text-accent-green'}>
             {metrics.sampleRateHz}Hz
           </span>
-          {metrics.isJitterHigh && (
+          {metrics.hasHardwareTiming ? (
+            <span
+              className="text-[9px] text-purple-400 font-mono font-bold ml-0.5"
+              title="MCU hardware microsecond timebase active"
+            >
+              HW
+            </span>
+          ) : metrics.isJitterHigh ? (
             <span
               className="text-[10px] text-amber-400 font-mono ml-0.5"
               title={`Uneven packet intervals detected: jitter ${metrics.jitterPercent}% (σ=${metrics.jitterMs}ms)`}
             >
               ⚠️
             </span>
-          )}
+          ) : null}
         </div>
-        <div className="truncate text-right" title="Dominant Spectral Peak Frequency (Parabolic Sub-Bin Interpolation)">
+        <div className="truncate text-right" title="Dominant Spectral Peak Frequency (Sub-Bin Interpolated)">
           Fp <span className="text-purple-300">{metrics.dominantFreqHz}Hz</span>
         </div>
       </div>
+
+      {/* Deep DSP Spectral Metrology Strip (FFT mode) */}
+      {displayType === 'fft' && (
+        <div className="mt-1.5 pt-1.5 border-t border-purple-500/10 grid grid-cols-4 sm:grid-cols-5 gap-1 text-[9px] font-mono text-zinc-400">
+          <div title="Signal-to-Noise Ratio (P_fund / P_noise)">
+            SNR <span className="text-emerald-400 font-semibold">{metrics.snrDb ?? 0}dB</span>
+          </div>
+          <div title="Total Harmonic Distortion (Harmonics 2..5 power over fundamental)">
+            THD <span className="text-amber-400 font-semibold">{metrics.thdPercent ?? 0}%</span>
+          </div>
+          <div title="Signal-to-Noise and Distortion Ratio">
+            SINAD <span className="text-purple-300 font-semibold">{metrics.sinadDb ?? 0}dB</span>
+          </div>
+          <div title="Effective Number of Bits ((SINAD - 1.76) / 6.02)">
+            ENOB <span className="text-cyan-300 font-semibold">{metrics.enob ?? 0}b</span>
+          </div>
+          {metrics.sineFit && (
+            <div
+              className="hidden sm:block truncate text-right text-zinc-400"
+              title={`IEEE-1057 Sine Fit: Amplitude=${metrics.sineFit.amplitude}, Phase=${metrics.sineFit.phaseDeg}°, Offset=${metrics.sineFit.offset}, RMSE=${metrics.sineFit.rmse}`}
+            >
+              FIT <span className="text-zinc-200">A={metrics.sineFit.amplitude}</span>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

@@ -1,13 +1,21 @@
 import type { DataPoint } from './parser';
 
 export type WindowFunctionType = 'hann' | 'hamming' | 'rectangular';
+export type PeakInterpolationMethod = 'lagrange_linear' | 'gaussian_log';
 
 export interface FrequencyBin {
   bin: number;
   frequency: number;
-   frequencyLabel: string;
+  frequencyLabel: string;
   magnitude: number;
   decibels: number;
+}
+
+export interface SineFitResult {
+  amplitude: number;
+  offset: number;
+  phaseDeg: number;
+  rmse: number;
 }
 
 export interface SignalMetrics {
@@ -27,6 +35,14 @@ export interface SignalMetrics {
   jitterMs: number;
   jitterPercent: number;
   isJitterHigh: boolean;
+  hasHardwareTiming?: boolean;
+  // v2.3 Deep Spectral & Distortion Metrology
+  snrDb?: number;
+  thdDb?: number;
+  thdPercent?: number;
+  sinadDb?: number;
+  enob?: number;
+  sineFit?: SineFitResult;
 }
 
 /**
@@ -181,10 +197,13 @@ export interface SamplingTimingEstimate {
   jitterMs: number;
   jitterPercent: number;
   isJitterHigh: boolean;
+  hasHardwareTiming: boolean;
 }
 
 /**
  * Robustly estimates sampling rate and inter-sample timing jitter from timestamped history.
+ * If hardware timestamps (hardwareTimestampUs) are provided, timing and jitter are computed
+ * directly from the hardware timer, completely eliminating USB CDC bulk-transfer jitter.
  * A high jitter percentage (> 20%) warns that serial polling or USB latency is non-deterministic.
  */
 export function estimateSamplingTiming(history: DataPoint[], fallbackHz = 20): SamplingTimingEstimate {
@@ -196,14 +215,37 @@ export function estimateSamplingTiming(history: DataPoint[], fallbackHz = 20): S
       jitterMs: 0,
       jitterPercent: 0,
       isJitterHigh: false,
+      hasHardwareTiming: false,
     };
   }
 
-  const deltas: number[] = [];
+  // 1. Check for hardware timer microsecond deltas
+  const hwDeltas: number[] = [];
   for (let i = 1; i < history.length; i++) {
-    const dt = history[i].timestamp - history[i - 1].timestamp;
-    if (dt > 0.2 && dt < 10000) {
-      deltas.push(dt);
+    const prevUs = history[i - 1].hardwareTimestampUs;
+    const currUs = history[i].hardwareTimestampUs;
+    if (prevUs !== undefined && currUs !== undefined) {
+      let diffUs = currUs - prevUs;
+      if (diffUs < 0) {
+        // Handle 32-bit hardware timer wrap (2^32 us = ~4294.97 seconds)
+        diffUs += 4294967296;
+      }
+      const dtMs = diffUs / 1000;
+      if (dtMs > 0.001 && dtMs < 60000) {
+        hwDeltas.push(dtMs);
+      }
+    }
+  }
+
+  const useHardwareTiming = hwDeltas.length >= 2;
+  const deltas: number[] = useHardwareTiming ? hwDeltas : [];
+
+  if (!useHardwareTiming) {
+    for (let i = 1; i < history.length; i++) {
+      const dt = history[i].timestamp - history[i - 1].timestamp;
+      if (dt > 0.2 && dt < 10000) {
+        deltas.push(dt);
+      }
     }
   }
 
@@ -218,6 +260,7 @@ export function estimateSamplingTiming(history: DataPoint[], fallbackHz = 20): S
       jitterMs: 0,
       jitterPercent: 0,
       isJitterHigh: false,
+      hasHardwareTiming: false,
     };
   }
 
@@ -247,6 +290,7 @@ export function estimateSamplingTiming(history: DataPoint[], fallbackHz = 20): S
     jitterMs,
     jitterPercent,
     isJitterHigh,
+    hasHardwareTiming: useHardwareTiming,
   };
 }
 
@@ -259,16 +303,21 @@ export function estimateSampleRateHz(history: DataPoint[], fallbackHz = 20): num
 }
 
 /**
- * 3-Point Parabolic (Lagrange Quadratic) Interpolation around discrete FFT peak bin k*
- * to estimate sub-bin peak frequency and amplitude:
- *   delta = 0.5 * (alpha - gamma) / (alpha - 2*beta + gamma)
- *   f_peak = (k* + delta) * (f_s / N)
+ * 3-Point Parabolic Interpolation around discrete FFT peak bin k*
+ * to estimate sub-bin peak frequency and amplitude.
+ *
+ * Supports two numerical formulations:
+ * 1. gaussian_log (default): Parabolic fit on ln|X(k)| (optimal for bell/Gaussian/Hann windows, zero leakage bias).
+ *    delta_log = 0.5 * (ln(alpha) - ln(gamma)) / (ln(alpha) - 2*ln(beta) + ln(gamma))
+ * 2. lagrange_linear: Classical Lagrange 3-point polynomial interpolation on linear amplitude |X(k)|.
+ *    delta_lin = 0.5 * (alpha - gamma) / (alpha - 2*beta + gamma)
  */
 export function interpolatePeakBin(
   magnitudes: Float64Array,
   peakIndex: number,
   sampleRateHz: number,
-  fftSize: number
+  fftSize: number,
+  method: PeakInterpolationMethod = 'gaussian_log'
 ): { frequencyHz: number; magnitude: number } {
   const binFreqStep = sampleRateHz / fftSize;
   if (peakIndex <= 0 || peakIndex >= magnitudes.length - 1) {
@@ -281,24 +330,291 @@ export function interpolatePeakBin(
   const alpha = magnitudes[peakIndex - 1];
   const beta = magnitudes[peakIndex];
   const gamma = magnitudes[peakIndex + 1];
-  const denom = alpha - 2 * beta + gamma;
 
-  if (Math.abs(denom) < 1e-12) {
-    return {
-      frequencyHz: Number((peakIndex * binFreqStep).toFixed(2)),
-      magnitude: Number(beta.toFixed(4)),
-    };
+  let delta = 0;
+  let interpolatedMag = beta;
+
+  if (method === 'gaussian_log') {
+    const logA = Math.log(Math.max(alpha, 1e-12));
+    const logB = Math.log(Math.max(beta, 1e-12));
+    const logG = Math.log(Math.max(gamma, 1e-12));
+    const denom = logA - 2 * logB + logG;
+
+    if (Math.abs(denom) > 1e-12) {
+      delta = 0.5 * ((logA - logG) / denom);
+      delta = Math.max(-0.5, Math.min(0.5, delta));
+      const logPeak = logB - 0.25 * (logA - logG) * delta;
+      interpolatedMag = Math.exp(logPeak);
+    }
+  } else {
+    const denom = alpha - 2 * beta + gamma;
+    if (Math.abs(denom) > 1e-12) {
+      delta = 0.5 * ((alpha - gamma) / denom);
+      delta = Math.max(-0.5, Math.min(0.5, delta));
+      interpolatedMag = beta - 0.25 * (alpha - gamma) * delta;
+    }
   }
 
-  const delta = 0.5 * ((alpha - gamma) / denom);
-  const clampedDelta = Math.max(-0.5, Math.min(0.5, delta));
-  const interpolatedFreq = (peakIndex + clampedDelta) * binFreqStep;
-  const interpolatedMag = beta - 0.25 * (alpha - gamma) * clampedDelta;
+  const interpolatedFreq = (peakIndex + delta) * binFreqStep;
 
   return {
     frequencyHz: Number(interpolatedFreq.toFixed(2)),
     magnitude: Number(Math.max(beta, interpolatedMag).toFixed(4)),
   };
+}
+
+export interface SpectralDistortionResult {
+  snrDb: number;
+  thdDb: number;
+  thdPercent: number;
+  sinadDb: number;
+  enob: number;
+  fundamentalPower: number;
+  harmonicPower: number;
+  noisePower: number;
+}
+
+/**
+ * Computes Signal-to-Noise Ratio (SNR), Total Harmonic Distortion (THD),
+ * Signal-to-Noise-and-Distortion (SINAD), and Effective Number of Bits (ENOB).
+ *
+ * Formulas:
+ *   P_fund = 0.5 * A_fund^2
+ *   P_harm = sum_{h=2..5} 0.5 * A_h^2
+ *   P_noise = max(P_total_ac - P_fund - P_harm, 1e-10)
+ *   SNR = 10 * log10(P_fund / P_noise)
+ *   THD = 10 * log10(P_harm / P_fund)
+ *   SINAD = 10 * log10((P_fund + P_harm + P_noise) / (P_harm + P_noise))
+ *   ENOB = max(0, (SINAD - 1.76) / 6.02)
+ */
+export function computeSpectralDistortion(
+  spectrum: FrequencyBin[],
+  _totalAcPower: number,
+  peakIndex: number
+): SpectralDistortionResult {
+  if (spectrum.length <= 2 || peakIndex <= 0 || peakIndex >= spectrum.length) {
+    return {
+      snrDb: 0,
+      thdDb: 0,
+      thdPercent: 0,
+      sinadDb: 0,
+      enob: 0,
+      fundamentalPower: 0,
+      harmonicPower: 0,
+      noisePower: 0,
+    };
+  }
+
+  // 1. Identify Fundamental Main Lobe Bins (peakIndex and +/- 1 adjacent bin for Hann leakage)
+  const fundBins = new Set<number>();
+  for (let d = -1; d <= 1; d++) {
+    const b = peakIndex + d;
+    if (b >= 1 && b < spectrum.length) fundBins.add(b);
+  }
+
+  // 2. Identify Harmonic Bins (h = 2, 3, 4, 5) and their skirts
+  const harmBins = new Set<number>();
+  for (let h = 2; h <= 5; h++) {
+    const harmBin = Math.round(h * peakIndex);
+    for (let d = -1; d <= 1; d++) {
+      const b = harmBin + d;
+      if (b >= 1 && b < spectrum.length && !fundBins.has(b)) {
+        harmBins.add(b);
+      }
+    }
+  }
+
+  // 3. Compute Powers across Spectrum
+  const fundMag = spectrum[peakIndex].magnitude;
+  const pFund = Math.max(0.5 * fundMag * fundMag, 1e-12);
+
+  let pHarm = 0;
+  for (const b of harmBins) {
+    const m = spectrum[b].magnitude;
+    pHarm += 0.5 * m * m;
+  }
+  pHarm = Math.max(pHarm, 1e-12);
+
+  let pNoise = 0;
+  for (let k = 1; k < spectrum.length; k++) {
+    if (!fundBins.has(k) && !harmBins.has(k)) {
+      const m = spectrum[k].magnitude;
+      pNoise += 0.5 * m * m;
+    }
+  }
+  pNoise = Math.max(pNoise, 1e-10);
+
+  // 4. Metrics
+  const snrDb = Number((10 * Math.log10(pFund / pNoise)).toFixed(1));
+  const thdRatio = Math.max(pHarm / pFund, 1e-12);
+  const thdDb = Number((10 * Math.log10(thdRatio)).toFixed(1));
+  const thdPercent = Number((Math.sqrt(thdRatio) * 100).toFixed(2));
+
+  const pDistortionAndNoise = pHarm + pNoise;
+  const sinadRatio = Math.max((pFund + pDistortionAndNoise) / pDistortionAndNoise, 1.0);
+  const sinadDb = Number((10 * Math.log10(sinadRatio)).toFixed(1));
+
+  const enobRaw = (sinadDb - 1.76) / 6.02;
+  const enob = Number(Math.max(0, enobRaw).toFixed(1));
+
+  return {
+    snrDb,
+    thdDb,
+    thdPercent,
+    sinadDb,
+    enob,
+    fundamentalPower: Number(pFund.toFixed(6)),
+    harmonicPower: Number(pHarm.toFixed(6)),
+    noisePower: Number(pNoise.toFixed(6)),
+  };
+}
+
+/**
+ * IEEE-1057 3-Parameter Sine Wave Fit via Linear Least Squares.
+ * Solves y(t) = A * cos(w0 * t) + B * sin(w0 * t) + C
+ * analytically via Cramer's rule on 3x3 normal equations matrix.
+ */
+export function fitSineIEEE1057(
+  samples: ArrayLike<number>,
+  sampleRateHz: number,
+  freqHz: number
+): SineFitResult | null {
+  const n = samples.length;
+  if (n < 4 || freqHz <= 0 || sampleRateHz <= 0) return null;
+
+  const omega0 = (2 * Math.PI * freqHz) / sampleRateHz;
+
+  let sC2 = 0;
+  let sS2 = 0;
+  let sCS = 0;
+  let sC = 0;
+  let sS = 0;
+  let sYC = 0;
+  let sYS = 0;
+  let sY = 0;
+
+  for (let t = 0; t < n; t++) {
+    const angle = omega0 * t;
+    const c = Math.cos(angle);
+    const s = Math.sin(angle);
+    const y = samples[t];
+
+    sC2 += c * c;
+    sS2 += s * s;
+    sCS += c * s;
+    sC += c;
+    sS += s;
+    sYC += y * c;
+    sYS += y * s;
+    sY += y;
+  }
+
+  const det =
+    sC2 * (sS2 * n - sS * sS) -
+    sCS * (sCS * n - sS * sC) +
+    sC * (sCS * sS - sS2 * sC);
+
+  if (Math.abs(det) < 1e-12) return null;
+
+  const detA =
+    sYC * (sS2 * n - sS * sS) -
+    sCS * (sYS * n - sS * sY) +
+    sC * (sYS * sS - sS2 * sY);
+
+  const detB =
+    sC2 * (sYS * n - sS * sY) -
+    sYC * (sCS * n - sS * sC) +
+    sC * (sCS * sY - sYS * sC);
+
+  const detC =
+    sC2 * (sS2 * sY - sYS * sS) -
+    sCS * (sCS * sY - sYS * sC) +
+    sYC * (sCS * sS - sS2 * sC);
+
+  const A = detA / det;
+  const B = detB / det;
+  const C = detC / det;
+
+  const amplitude = Math.hypot(A, B);
+  const phaseRad = Math.atan2(-B, A);
+  const phaseDeg = (phaseRad * 180) / Math.PI;
+
+  let residualSqSum = 0;
+  for (let t = 0; t < n; t++) {
+    const angle = omega0 * t;
+    const yModel = A * Math.cos(angle) + B * Math.sin(angle) + C;
+    const diff = samples[t] - yModel;
+    residualSqSum += diff * diff;
+  }
+  const rmse = Math.sqrt(residualSqSum / n);
+
+  return {
+    amplitude: Number(amplitude.toFixed(4)),
+    offset: Number(C.toFixed(4)),
+    phaseDeg: Number(phaseDeg.toFixed(2)),
+    rmse: Number(rmse.toFixed(4)),
+  };
+}
+
+/**
+ * Welch's Averaged, Modified Periodogram Method for Power Spectral Density (PSD).
+ * Reduces spectral variance across continuous records via 50% overlapping Hann windows.
+ */
+export function computeWelchPSD(
+  samples: ArrayLike<number>,
+  segmentLength = 64,
+  overlap = 32,
+  sampleRateHz = 1000
+): { frequencies: Float64Array; psd: Float64Array } {
+  const n = samples.length;
+  const segLen = resolveFftSize(Math.min(segmentLength, n), 256);
+  const hop = Math.max(1, segLen - overlap);
+
+  const { weights } = computeWindow(segLen, 'hann');
+  let windowPowerSum = 0;
+  for (let i = 0; i < segLen; i++) {
+    windowPowerSum += weights[i] * weights[i];
+  }
+  const numBins = (segLen >> 1) + 1;
+  const psdAccum = new Float64Array(numBins);
+  let numSegments = 0;
+
+  for (let start = 0; start + segLen <= n; start += hop) {
+    const real = new Float64Array(segLen);
+    const imag = new Float64Array(segLen);
+
+    let segMean = 0;
+    for (let i = 0; i < segLen; i++) {
+      segMean += samples[start + i];
+    }
+    segMean /= segLen;
+
+    for (let i = 0; i < segLen; i++) {
+      real[i] = (samples[start + i] - segMean) * weights[i];
+    }
+
+    radix2FFT(real, imag);
+
+    for (let k = 0; k < numBins; k++) {
+      const magSq = real[k] * real[k] + imag[k] * imag[k];
+      const factor = k === 0 || k === segLen >> 1 ? 1.0 : 2.0;
+      psdAccum[k] += (factor * magSq) / (sampleRateHz * windowPowerSum);
+    }
+    numSegments++;
+  }
+
+  if (numSegments > 0) {
+    for (let k = 0; k < numBins; k++) {
+      psdAccum[k] /= numSegments;
+    }
+  }
+
+  const frequencies = new Float64Array(numBins);
+  for (let k = 0; k < numBins; k++) {
+    frequencies[k] = (k * sampleRateHz) / segLen;
+  }
+
+  return { frequencies, psd: psdAccum };
 }
 
 /**
@@ -308,7 +624,8 @@ export function interpolatePeakBin(
 export function analyzeSignalAndSpectrum(
   history: DataPoint[],
   windowType: WindowFunctionType = 'hann',
-  overrideSampleRateHz?: number
+  overrideSampleRateHz?: number,
+  interpolationMethod: PeakInterpolationMethod = 'gaussian_log'
 ): { metrics: SignalMetrics; spectrum: FrequencyBin[] } {
   const nSamples = history.length;
   if (nSamples === 0) {
@@ -383,6 +700,7 @@ export function analyzeSignalAndSpectrum(
         jitterMs: timing.jitterMs,
         jitterPercent: timing.jitterPercent,
         isJitterHigh: timing.isJitterHigh,
+        hasHardwareTiming: timing.hasHardwareTiming,
       },
       spectrum: [],
     };
@@ -449,10 +767,21 @@ export function analyzeSignalAndSpectrum(
   // 5. Sub-bin parabolic interpolation around peak bin k*
   const dominant =
     peakBinIndex > 0
-      ? interpolatePeakBin(rawMagnitudes, peakBinIndex, sampleRateHz, fftSize)
+      ? interpolatePeakBin(rawMagnitudes, peakBinIndex, sampleRateHz, fftSize, interpolationMethod)
       : { frequencyHz: 0, magnitude: 0 };
 
   const freqResolutionHz = Number((sampleRateHz / fftSize).toFixed(3));
+
+  // 6. Deep Spectral Metrology: SNR, THD, SINAD, ENOB
+  const distortion = computeSpectralDistortion(spectrum, varianceSum / nSamples, peakBinIndex);
+
+  // 7. IEEE-1057 3-Parameter Sine Fit on Active Frame
+  let sineFit: SineFitResult | undefined;
+  if (dominant.frequencyHz > 0) {
+    const sampleSlice = history.slice(startOffset, startOffset + activeSamples).map((d) => d.value);
+    const res = fitSineIEEE1057(sampleSlice, sampleRateHz, dominant.frequencyHz);
+    if (res) sineFit = res;
+  }
 
   return {
     metrics: {
@@ -472,6 +801,13 @@ export function analyzeSignalAndSpectrum(
       jitterMs: timing.jitterMs,
       jitterPercent: timing.jitterPercent,
       isJitterHigh: timing.isJitterHigh,
+      hasHardwareTiming: timing.hasHardwareTiming,
+      snrDb: distortion.snrDb,
+      thdDb: distortion.thdDb,
+      thdPercent: distortion.thdPercent,
+      sinadDb: distortion.sinadDb,
+      enob: distortion.enob,
+      sineFit,
     },
     spectrum,
   };
