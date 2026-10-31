@@ -9,7 +9,7 @@ import {
 export interface FramebufferState {
   resolution: ResolutionPreset;
   viewMode: CanvasViewMode;
-  zoom: '1x' | '2x' | 'fit';
+  zoom: '1x' | '2x' | '4x' | 'fit';
   pixelCount: number;
   activeCoreCount: number;
   fps: number;
@@ -72,9 +72,19 @@ class FramebufferStore {
     this.notify();
   }
 
-  public setZoom(zoom: '1x' | '2x' | 'fit'): void {
+  public setZoom(zoom: '1x' | '2x' | '4x' | 'fit'): void {
     this.state.zoom = zoom;
     this.notify();
+  }
+
+  public putPixels(pixels: PixelData[]): void {
+    this.ingestPixels(pixels);
+  }
+
+  public getPixelAt(x: number, y: number): PixelData | null {
+    const { width, height } = this.state.resolution;
+    if (x < 0 || x >= width || y < 0 || y >= height) return null;
+    return this.state.pixelsMap.get(y * width + x) || null;
   }
 
   public ingestPixels(pixels: PixelData[]): void {

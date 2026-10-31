@@ -62,7 +62,7 @@ const GaugeChart = ({ value, ceiling }: { value: number; ceiling: number }) => {
         <path
           d="M 20 100 A 80 80 0 0 1 180 100"
           fill="none"
-          stroke="#00d4ff"
+          stroke="#22d3ee"
           strokeWidth="16"
           strokeLinecap="round"
           strokeDasharray="251.2"
@@ -161,9 +161,9 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
   return (
     <div
       className={cn(
-        'bg-zinc-900 border rounded-2xl p-4 flex flex-col relative transition-colors',
+        'bg-[#111113] border rounded-xl p-4 flex flex-col relative transition-colors',
         displayType === 'fft' ? 'min-h-[330px]' : 'h-76',
-        isPaused ? 'border-amber-400/30' : 'border-white/5'
+        isPaused ? 'border-amber-400/30' : 'border-white/[0.08]'
       )}
     >
       {/* Top Header */}
@@ -184,7 +184,7 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
             <span className="text-xl font-bold text-zinc-100">
               {Number.isInteger(activeValue) ? activeValue : activeValue.toFixed(2)}
             </span>
-            {unit && <span className="text-xs text-accent-blue font-semibold">{unit}</span>}
+            {unit && <span className="text-xs text-cyan-400 font-semibold">{unit}</span>}
           </div>
 
           {/* Quick FFT Toggle Button */}
@@ -332,13 +332,13 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
                   borderRadius: '8px',
                   fontSize: '12px',
                 }}
-                itemStyle={{ color: '#00d4ff' }}
+                itemStyle={{ color: '#22d3ee' }}
                 animationDuration={80}
               />
               <Line
                 type="monotone"
                 dataKey="value"
-                stroke="#00d4ff"
+                stroke="#22d3ee"
                 strokeWidth={2}
                 dot={false}
                 isAnimationActive={false}
@@ -428,7 +428,7 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
           AVG <span className="text-zinc-300">{metrics.mean}</span>
         </div>
         <div className="truncate" title="Peak-to-Peak Amplitude (Max - Min)">
-          VPP <span className="text-accent-blue">{metrics.vpp}</span>
+          VPP <span className="text-cyan-400">{metrics.vpp}</span>
         </div>
         <div
           className="truncate"
@@ -441,7 +441,7 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
           }`}
         >
           Fs{' '}
-          <span className={metrics.isJitterHigh ? 'text-amber-400 font-semibold' : 'text-accent-green'}>
+          <span className={metrics.isJitterHigh ? 'text-amber-400 font-semibold' : 'text-emerald-400'}>
             {metrics.sampleRateHz}Hz
           </span>
           {metrics.hasHardwareTiming ? (
