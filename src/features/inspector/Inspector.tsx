@@ -26,7 +26,8 @@ export const Inspector: React.FC<InspectorProps> = ({ onSend }) => {
   const controls = useStudioStore((s) => s.controls);
   const updateControl = useStudioStore((s) => s.updateControl);
 
-  if (!inspectorOpen) return null;
+  // Inspector is redundant on the Control Panel tab itself
+  if (!inspectorOpen || activeTab === 'controls') return null;
 
   // Filter controls pinned to the active tab
   const pinnedControls = controls.filter((c) => {
@@ -49,114 +50,119 @@ export const Inspector: React.FC<InspectorProps> = ({ onSend }) => {
 
   return (
     <>
-      {/* Mobile/Tablet Backdrop */}
+      {/* Mobile/Tablet Drawer Backdrop (below lg / 1024px) */}
       <div
-        className="fixed inset-0 bg-black/50 backdrop-blur-xs z-20 md:hidden transition-opacity"
+        className="fixed inset-0 bg-black/60 backdrop-blur-xs z-40 lg:hidden transition-opacity"
         onClick={toggleInspector}
       />
 
-      <aside className="w-80 shrink-0 border-l border-white/[0.08] bg-[#09090b] flex flex-col h-full z-30 select-none max-md:fixed max-md:right-0 max-md:top-0 max-md:bottom-0 max-md:shadow-2xl">
-      {/* Inspector Header */}
-      <div className="h-11 px-4 border-b border-white/[0.08] flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Settings2 className="w-3.5 h-3.5 text-cyan-400" />
-          <span className="text-xs font-semibold text-zinc-200">
-            Inspector · {TAB_TITLES[activeTab]}
-          </span>
+      <aside className="w-80 shrink-0 border-l border-white/[0.08] bg-[#09090b] flex flex-col h-full z-30 select-none max-lg:fixed max-lg:right-0 max-lg:top-0 max-lg:bottom-0 max-lg:z-50 max-lg:shadow-2xl">
+        {/* Inspector Header */}
+        <div className="h-11 px-4 border-b border-white/[0.08] flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Settings2 className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="text-xs font-semibold text-zinc-200">
+              Inspector · {TAB_TITLES[activeTab]}
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={toggleInspector}
+            className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+            title="Close Inspector (Hotkey: ])"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
 
-        <button
-          type="button"
-          onClick={toggleInspector}
-          className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
-          title="Close Inspector (Hotkey: ])"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
-      </div>
-
-      {/* Inspector Body: Pinned Controls */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {pinnedControls.length === 0 ? (
-          <div className="p-6 rounded-xl border border-dashed border-white/10 text-center flex flex-col items-center justify-center my-auto">
-            <SlidersHorizontal className="w-6 h-6 text-zinc-600 mb-2" />
-            <p className="text-xs font-medium text-zinc-400 mb-1">No Pinned Controls</p>
-            <p className="text-[11px] text-zinc-500 leading-relaxed mb-4">
-              Pin controls in the Control Panel to tweak parameters here without switching tabs.
-            </p>
-            <button
-              type="button"
-              onClick={() => setActiveTab('controls')}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/10 hover:border-white/20 text-xs text-cyan-400 transition-colors"
-            >
-              <span>Manage Controls</span>
-              <ExternalLink className="w-3 h-3" />
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between text-[11px] font-mono text-zinc-500 pb-1">
-              <span>
-                {pinnedControls.length} pinned control{pinnedControls.length > 1 ? 's' : ''}
-              </span>
+        {/* Inspector Body: Pinned Controls */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {pinnedControls.length === 0 ? (
+            <div className="p-6 rounded-xl border border-dashed border-white/10 text-center flex flex-col items-center justify-center my-auto">
+              <SlidersHorizontal className="w-6 h-6 text-zinc-600 mb-2" />
+              <p className="text-xs font-medium text-zinc-400 mb-1">No Pinned Controls</p>
+              <p className="text-[11px] text-zinc-500 leading-relaxed mb-4">
+                Pin controls in the Control Panel to tweak parameters here without switching tabs.
+              </p>
               <button
                 type="button"
                 onClick={() => setActiveTab('controls')}
-                className="hover:text-cyan-400 transition-colors flex items-center gap-1 text-[10px]"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/10 hover:border-white/20 text-xs text-cyan-400 transition-colors"
               >
-                <span>Edit</span>
-                <ExternalLink className="w-2.5 h-2.5" />
+                <span>Manage Controls</span>
+                <ExternalLink className="w-3 h-3" />
               </button>
             </div>
-
-            {pinnedControls.map((ctrl) => (
-              <div
-                key={ctrl.id}
-                className="bg-[#111113] border border-white/[0.08] rounded-xl p-3 shadow-sm"
-              >
-                {ctrl.type === 'button' && (
-                  <ButtonControl id={ctrl.id} label={ctrl.label} onSend={onSend} />
-                )}
-
-                {ctrl.type === 'slider' && (
-                  <SliderControl
-                    id={ctrl.id}
-                    label={ctrl.label}
-                    min={ctrl.min}
-                    max={ctrl.max}
-                    step={ctrl.step}
-                    onSend={onSend}
-                    onConfigChange={(id, patch) => updateControl(id, patch)}
-                  />
-                )}
-
-                {ctrl.type === 'toggle' && (
-                  <ToggleControl
-                    id={ctrl.id}
-                    label={ctrl.label}
-                    initialValue={Boolean(ctrl.value)}
-                    onSend={onSend}
-                    compact
-                  />
-                )}
-
-                {ctrl.type === 'numeric' && (
-                  <NumericControl
-                    id={ctrl.id}
-                    label={ctrl.label}
-                    initialValue={typeof ctrl.value === 'number' ? ctrl.value : 0}
-                    unit={ctrl.unit}
-                    step={ctrl.step ?? 1}
-                    onSend={onSend}
-                    compact
-                  />
-                )}
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-[11px] font-mono text-zinc-500 pb-1">
+                <span>
+                  {pinnedControls.length} pinned control{pinnedControls.length > 1 ? 's' : ''}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('controls')}
+                  className="hover:text-cyan-400 transition-colors flex items-center gap-1 text-[10px]"
+                >
+                  <span>Edit</span>
+                  <ExternalLink className="w-2.5 h-2.5" />
+                </button>
               </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </aside>
+
+              {pinnedControls.map((ctrl) => (
+                <div
+                  key={ctrl.id}
+                  className="bg-[#111113] border border-white/[0.08] rounded-xl p-3 shadow-sm"
+                >
+                  {ctrl.type === 'button' && (
+                    <ButtonControl id={ctrl.id} label={ctrl.label} onSend={onSend} />
+                  )}
+
+                  {ctrl.type === 'slider' && (
+                    <SliderControl
+                      id={ctrl.id}
+                      label={ctrl.label}
+                      min={ctrl.min}
+                      max={ctrl.max}
+                      step={ctrl.step}
+                      value={typeof ctrl.value === 'number' ? ctrl.value : undefined}
+                      onSend={onSend}
+                      onValueChange={(id, val) => updateControl(id, { value: val })}
+                      onConfigChange={(id, patch) => updateControl(id, patch)}
+                      compact
+                    />
+                  )}
+
+                  {ctrl.type === 'toggle' && (
+                    <ToggleControl
+                      id={ctrl.id}
+                      label={ctrl.label}
+                      value={Boolean(ctrl.value)}
+                      onSend={onSend}
+                      onValueChange={(id, val) => updateControl(id, { value: val })}
+                      compact
+                    />
+                  )}
+
+                  {ctrl.type === 'numeric' && (
+                    <NumericControl
+                      id={ctrl.id}
+                      label={ctrl.label}
+                      value={typeof ctrl.value === 'number' ? ctrl.value : 0}
+                      unit={ctrl.unit}
+                      step={ctrl.step ?? 1}
+                      onSend={onSend}
+                      onValueChange={(id, val) => updateControl(id, { value: val })}
+                      compact
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </aside>
     </>
   );
 };

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Send, Plus, Minus } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -6,27 +6,39 @@ interface NumericControlProps {
   id: string;
   label: string;
   initialValue?: number;
+  value?: number;
   unit?: string;
   step?: number;
-  onSend: (data: string) => void;
   compact?: boolean;
+  onSend: (data: string) => void;
+  onValueChange?: (id: string, val: number) => void;
 }
 
 export const NumericControl: React.FC<NumericControlProps> = ({
   id,
   label,
   initialValue = 0,
+  value: controlledValue,
   unit,
   step = 1,
-  onSend,
   compact = false,
+  onSend,
+  onValueChange,
 }) => {
-  const [val, setVal] = useState<number>(initialValue);
-  const [rawText, setRawText] = useState<string>(String(initialValue));
+  const [val, setVal] = useState<number>(controlledValue ?? initialValue);
+  const [rawText, setRawText] = useState<string>(String(controlledValue ?? initialValue));
+
+  useEffect(() => {
+    if (typeof controlledValue === 'number') {
+      setVal(controlledValue);
+      setRawText(String(controlledValue));
+    }
+  }, [controlledValue]);
 
   const sendValue = (targetVal: number) => {
     setVal(targetVal);
     setRawText(String(targetVal));
+    onValueChange?.(id, targetVal);
     onSend(JSON.stringify({ [id]: targetVal }));
   };
 
@@ -47,7 +59,7 @@ export const NumericControl: React.FC<NumericControlProps> = ({
     <div
       className={cn(
         'flex flex-col space-y-1.5',
-        compact ? 'py-1' : 'py-2'
+        compact ? 'py-0.5' : 'py-2'
       )}
     >
       <div className="flex items-center justify-between">

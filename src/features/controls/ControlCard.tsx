@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { GripVertical, Trash2, Settings2 } from 'lucide-react';
+import { GripVertical, Trash2, Settings2, Pin } from 'lucide-react';
 import { ButtonControl } from '../../components/controls/ButtonControl';
 import { SliderControl } from '../../components/controls/SliderControl';
 import { ToggleControl } from '../../components/controls/ToggleControl';
@@ -20,7 +20,6 @@ const TAB_OPTIONS: { id: WorkspaceTab; label: string }[] = [
   { id: 'telemetry', label: 'Telemetry' },
   { id: 'framebuffer', label: 'Framebuffer' },
   { id: 'console', label: 'Console' },
-  { id: 'controls', label: 'Controls' },
 ];
 
 export const ControlCard: React.FC<ControlCardProps> = ({
@@ -89,8 +88,9 @@ export const ControlCard: React.FC<ControlCardProps> = ({
 
         <div className="flex items-center gap-1">
           {control.pinTo && control.pinTo.length > 0 && (
-            <span className="hidden sm:inline-flex text-[10px] font-mono text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-1.5 py-0.2 rounded">
-              📌 {control.pinTo.join(', ')}
+            <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-mono text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-1.5 py-0.2 rounded">
+              <Pin className="w-2.5 h-2.5 text-cyan-400" />
+              <span>{control.pinTo.join(', ')}</span>
             </span>
           )}
 
@@ -130,8 +130,11 @@ export const ControlCard: React.FC<ControlCardProps> = ({
             min={control.min}
             max={control.max}
             step={control.step}
+            value={typeof control.value === 'number' ? control.value : undefined}
             onSend={onSend}
+            onValueChange={(id, val) => onUpdate(id, { value: val })}
             onConfigChange={(id, patch) => onUpdate(id, patch)}
+            compact
           />
         )}
 
@@ -139,8 +142,10 @@ export const ControlCard: React.FC<ControlCardProps> = ({
           <ToggleControl
             id={control.id}
             label={control.label}
-            initialValue={Boolean(control.value)}
+            value={Boolean(control.value)}
             onSend={onSend}
+            onValueChange={(id, val) => onUpdate(id, { value: val })}
+            compact
           />
         )}
 
@@ -148,10 +153,12 @@ export const ControlCard: React.FC<ControlCardProps> = ({
           <NumericControl
             id={control.id}
             label={control.label}
-            initialValue={typeof control.value === 'number' ? control.value : 0}
+            value={typeof control.value === 'number' ? control.value : 0}
             unit={control.unit}
             step={control.step ?? 1}
             onSend={onSend}
+            onValueChange={(id, val) => onUpdate(id, { value: val })}
+            compact
           />
         )}
       </div>

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useMemo } from 'react';
+﻿import React, { useEffect, useState, useRef, useMemo } from 'react';
 import {
   LineChart,
   Line,
@@ -195,7 +195,7 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
             className={cn(
               'px-2 py-1 text-[10px] font-mono font-bold rounded-md border transition-colors flex items-center gap-1',
               displayType === 'fft'
-                ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+                ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
                 : 'bg-zinc-800/80 text-zinc-400 border-white/5 hover:text-zinc-200'
             )}
           >
@@ -263,7 +263,7 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
           <div className="flex items-center gap-2 text-zinc-400 truncate">
             <span>
               f<sub className="text-[8px]">peak</sub>:{' '}
-              <strong className="text-purple-300">{metrics.dominantFreqHz.toFixed(2)} Hz</strong>
+              <strong className="text-cyan-400">{metrics.dominantFreqHz.toFixed(2)} Hz</strong>
             </span>
             <span className="text-zinc-600">|</span>
             <span>
@@ -271,7 +271,7 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
             </span>
             <span className="text-zinc-600 hidden sm:inline">|</span>
             <span className="hidden sm:inline text-zinc-500">
-              N={metrics.fftSize} (Δf={metrics.freqResolutionHz.toFixed(2)}Hz)
+              N={metrics.fftSize} (Î”f={metrics.freqResolutionHz.toFixed(2)}Hz)
             </span>
           </div>
 
@@ -285,7 +285,7 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
                 className={cn(
                   'px-1.5 py-0.5 rounded uppercase transition-colors',
                   windowType === w
-                    ? 'bg-purple-500/25 text-purple-200 border border-purple-400/40'
+                    ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-500/40'
                     : 'text-zinc-500 hover:text-zinc-300'
                 )}
               >
@@ -303,7 +303,7 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
                   ? 'Gaussian Log-Parabolic (unbiased for Hann/bell windows)'
                   : 'Lagrange Linear Parabolic'
               }`}
-              className="px-1.5 py-0.5 rounded text-[9px] font-mono text-purple-300 bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20 transition-colors"
+              className="px-1.5 py-0.5 rounded text-[9px] font-mono text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 hover:bg-cyan-500/20 transition-colors"
             >
               {interpMethod === 'gaussian_log' ? 'LogPeak' : 'LinLagrange'}
             </button>
@@ -408,9 +408,9 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
                   return [`${Number(val).toFixed(4)} (${db} dB)`, 'Magnitude |X(f)|'];
                 }}
                 animationDuration={80}
-                cursor={{ fill: 'rgba(168,85,247,0.08)' }}
+                cursor={{ fill: 'rgba(34,211,238,0.08)' }}
               />
-              <Bar dataKey="magnitude" fill="#a855f7" radius={[2, 2, 0, 0]} isAnimationActive={false} />
+              <Bar dataKey="magnitude" fill="#22d3ee" radius={[2, 2, 0, 0]} isAnimationActive={false} />
             </BarChart>
           </ResponsiveContainer>
         )}
@@ -434,9 +434,9 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
           className="truncate"
           title={`Effective Sample Rate (Nyquist: ${metrics.nyquistHz} Hz)${
             metrics.hasHardwareTiming
-              ? ' — ⚡ Synchronized with MCU hardware microsecond timer (zero USB latency jitter)'
+              ? ' â€” âš¡ Synchronized with MCU hardware microsecond timer (zero USB latency jitter)'
               : metrics.isJitterHigh
-                ? ` — ⚠️ High Inter-Sample Jitter: ${metrics.jitterPercent}% (σ=${metrics.jitterMs}ms)`
+                ? ` â€” âš ï¸ High Inter-Sample Jitter: ${metrics.jitterPercent}% (Ïƒ=${metrics.jitterMs}ms)`
                 : ''
           }`}
         >
@@ -446,7 +446,7 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
           </span>
           {metrics.hasHardwareTiming ? (
             <span
-              className="text-[9px] text-purple-400 font-mono font-bold ml-0.5"
+              className="text-[9px] text-cyan-400 font-mono font-bold ml-0.5"
               title="MCU hardware microsecond timebase active"
             >
               HW
@@ -454,20 +454,20 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
           ) : metrics.isJitterHigh ? (
             <span
               className="text-[10px] text-amber-400 font-mono ml-0.5"
-              title={`Uneven packet intervals detected: jitter ${metrics.jitterPercent}% (σ=${metrics.jitterMs}ms)`}
+              title={`Uneven packet intervals detected: jitter ${metrics.jitterPercent}% (Ïƒ=${metrics.jitterMs}ms)`}
             >
-              ⚠️
+              âš ï¸
             </span>
           ) : null}
         </div>
         <div className="truncate text-right" title="Dominant Spectral Peak Frequency (Sub-Bin Interpolated)">
-          Fp <span className="text-purple-300">{metrics.dominantFreqHz}Hz</span>
+          Fp <span className="text-cyan-400">{metrics.dominantFreqHz}Hz</span>
         </div>
       </div>
 
       {/* Deep DSP Spectral Metrology Strip (FFT mode) */}
       {displayType === 'fft' && (
-        <div className="mt-1.5 pt-1.5 border-t border-purple-500/10 grid grid-cols-4 sm:grid-cols-5 gap-1 text-[9px] font-mono text-zinc-400">
+        <div className="mt-1.5 pt-1.5 border-t border-cyan-500/10 grid grid-cols-4 sm:grid-cols-5 gap-1 text-[9px] font-mono text-zinc-400">
           <div title="Signal-to-Noise Ratio (P_fund / P_noise)">
             SNR <span className="text-emerald-400 font-semibold">{metrics.snrDb ?? 0}dB</span>
           </div>
@@ -475,7 +475,7 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
             THD <span className="text-amber-400 font-semibold">{metrics.thdPercent ?? 0}%</span>
           </div>
           <div title="Signal-to-Noise and Distortion Ratio">
-            SINAD <span className="text-purple-300 font-semibold">{metrics.sinadDb ?? 0}dB</span>
+            SINAD <span className="text-cyan-300 font-semibold">{metrics.sinadDb ?? 0}dB</span>
           </div>
           <div title="Effective Number of Bits ((SINAD - 1.76) / 6.02)">
             ENOB <span className="text-cyan-300 font-semibold">{metrics.enob ?? 0}b</span>
@@ -483,7 +483,7 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
           {metrics.sineFit && (
             <div
               className="hidden sm:block truncate text-right text-zinc-400"
-              title={`IEEE-1057 Sine Fit: Amplitude=${metrics.sineFit.amplitude}, Phase=${metrics.sineFit.phaseDeg}°, Offset=${metrics.sineFit.offset}, RMSE=${metrics.sineFit.rmse}`}
+              title={`IEEE-1057 Sine Fit: Amplitude=${metrics.sineFit.amplitude}, Phase=${metrics.sineFit.phaseDeg}Â°, Offset=${metrics.sineFit.offset}, RMSE=${metrics.sineFit.rmse}`}
             >
               FIT <span className="text-zinc-200">A={metrics.sineFit.amplitude}</span>
             </div>
@@ -493,3 +493,5 @@ export const ChartWidget: React.FC<ChartWidgetProps> = ({
     </div>
   );
 };
+
+

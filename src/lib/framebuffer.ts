@@ -1,4 +1,4 @@
-/**
+﻿/**
  * OpenSerial-Studio Framebuffer & Compute Cluster Graphics Library (v3.1.0)
  * 
  * Supports high-speed pixel ingestion (JSON & 8-byte binary packets),
@@ -23,7 +23,7 @@ export interface ResolutionPreset {
 }
 
 export const RESOLUTION_PRESETS: ResolutionPreset[] = [
-  { width: 160, height: 120, label: '160x120 (Bitluni 64-Core)' },
+  { width: 160, height: 120, label: '160×120 (QQVGA · 4:3)' },
   { width: 80, height: 60, label: '80x60 (Ultra-Fast)' },
   { width: 320, height: 240, label: '320x240 (HQ Raymarch)' },
 ];
@@ -399,3 +399,4 @@ export function raymarchPixel(
 
   return { x: px, y: py, r, g, b, coreId };
 }
+

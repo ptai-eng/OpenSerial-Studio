@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Sparkles,
   Layers,
@@ -270,7 +270,7 @@ export const FramebufferTab: React.FC<FramebufferTabProps> = ({
             zoom === '1x' && 'w-auto h-auto',
             zoom === '2x' && 'w-[320px] md:w-[640px] h-auto',
             zoom === '4x' && 'w-[640px] md:w-[960px] h-auto',
-            zoom === 'fit' && 'max-w-full max-h-full object-contain'
+            zoom === 'fit' && 'w-full max-w-2xl max-h-[62vh] h-auto object-contain aspect-[4/3] shadow-2xl'
           )}
           style={{
             imageRendering: 'pixelated',
@@ -291,13 +291,13 @@ export const FramebufferTab: React.FC<FramebufferTabProps> = ({
             </span>
           </span>
 
-          <span className="text-zinc-600">·</span>
+          <span className="text-zinc-600">Â·</span>
           <span className="text-cyan-400 font-medium">
             {throughput.toLocaleString()} px/s
           </span>
 
-          <span className="text-zinc-600">·</span>
-          <span className="flex items-center gap-1 text-purple-300">
+          <span className="text-zinc-600">Â·</span>
+          <span className="flex items-center gap-1 text-cyan-400">
             <Cpu className="w-3.5 h-3.5" />
             <span>{activeCoreCount} / 64 cores</span>
           </span>
@@ -311,7 +311,7 @@ export const FramebufferTab: React.FC<FramebufferTabProps> = ({
               <span>
                 X: {hoverInfo.x}, Y: {hoverInfo.y}
               </span>
-              <span className="text-zinc-600">·</span>
+              <span className="text-zinc-600">Â·</span>
               <span className="flex items-center gap-1">
                 <span
                   className="w-2.5 h-2.5 rounded-sm border border-white/20"
@@ -319,8 +319,8 @@ export const FramebufferTab: React.FC<FramebufferTabProps> = ({
                 />
                 <span className="text-zinc-200">{hoverInfo.hex}</span>
               </span>
-              <span className="text-zinc-600">·</span>
-              <span className="text-purple-300">Core {hoverInfo.coreId}</span>
+              <span className="text-zinc-600">Â·</span>
+              <span className="text-cyan-400">Core {hoverInfo.coreId}</span>
             </div>
           ) : (
             <span className="text-zinc-600 italic">Hover canvas for pixel inspector</span>
@@ -330,3 +330,7 @@ export const FramebufferTab: React.FC<FramebufferTabProps> = ({
     </div>
   );
 };
+
+
+
+

@@ -1,4 +1,4 @@
-export interface ControlSpec {
+﻿export interface ControlSpec {
   id: string;
   type: 'button' | 'slider';
 }
@@ -10,7 +10,7 @@ export const ARDUINO_PWM_PINS = [3, 5, 6, 9, 10, 11] as const;
 // Valid Arduino Uno/Nano standard digital output pins (excluding Serial D0/D1)
 export const ARDUINO_DIGITAL_PINS = [2, 4, 7, 8, 12, 13] as const;
 
-// Safe ADC1 pins on ESP32 (GPIO 32..39) — safe to use with active Wi-Fi (avoids ADC2 conflict)
+// Safe ADC1 pins on ESP32 (GPIO 32..39) â€” safe to use with active Wi-Fi (avoids ADC2 conflict)
 export const ESP32_ADC1_PINS = [32, 33, 34, 35, 36, 39] as const;
 // Analog ADC pins on Raspberry Pi Pico RP2040/RP2350
 export const PICO_ADC_PINS = [26, 27, 28] as const;
@@ -29,7 +29,7 @@ export function generateArduinoCode(widgets: string[], controls: ControlSpec[]):
   const txWidgets = hasTx ? widgets : ['Temperature', 'Humidity'];
 
   let code = `/*
- * OpenSerial Studio v3.1.1 — Auto-Generated Firmware
+ * OpenSerial Studio v3.2 â€” Auto-Generated Firmware
  * Target: Arduino (Uno, Mega, Nano) / ESP32 / WCH CH32V208 (RISC-V)
  * Protocol: JSON + 8-Byte Bit-Packed Framebuffer over UART (115200 bps)
  * Dependency: ArduinoJson v7+ (install via Library Manager)
@@ -176,7 +176,7 @@ export function generateArduinoPlotterCode(widgets: string[], controls: ControlS
   const txWidgets = hasTx ? widgets : ['Temp', 'Humid'];
 
   let code = `/*
- * OpenSerial Studio v2.0 — Zero-Library Lightweight Firmware
+ * OpenSerial Studio v2.0 â€” Zero-Library Lightweight Firmware
  * Target: Any 8-bit/32-bit MCU (ATmega328P, ATtiny, STM32duino, ESP32)
  * Protocol: Key:Value Serial Plotter Stream (Zero external libraries required!)
  */
@@ -289,7 +289,7 @@ export function generateSTM32Code(widgets: string[], controls: ControlSpec[]): s
   const txWidgets = hasTx ? widgets : ['Temperature', 'Voltage_V'];
 
   let code = `/*
- * OpenSerial Studio v3.1.1 — STM32 HAL Firmware Template
+ * OpenSerial Studio v3.2 â€” STM32 HAL Firmware Template
  * Target: STM32F1 / STM32F4 / STM32G4 / STM32H7 (STM32CubeIDE)
  * UART Peripheral: huart2 (115200-8-N-1, DMA / Interrupt RX enabled)
  *
@@ -341,7 +341,7 @@ void OpenSerial_Init(void) {
 }
 
 /**
- * STM32 HAL UART Idle Line Callback — captures complete JSON/Command frames via DMA
+ * STM32 HAL UART Idle Line Callback â€” captures complete JSON/Command frames via DMA
  */
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size) {
     if (huart->Instance == USART2) {
@@ -429,7 +429,7 @@ export function generateMicroPythonCode(widgets: string[], controls: ControlSpec
   const txWidgets = hasTx ? widgets : ['Temperature', 'Humidity'];
 
   let code = `"""
-OpenSerial Studio v2.1.1 — Auto-Generated MicroPython Firmware
+OpenSerial Studio v2.1.1 â€” Auto-Generated MicroPython Firmware
 Target: ESP32 / Raspberry Pi Pico (RP2040 / RP2350)
 Protocol: JSON over USB CDC / UART (115200 bps)
 """
@@ -527,3 +527,4 @@ while True:
 
   return code;
 }
+

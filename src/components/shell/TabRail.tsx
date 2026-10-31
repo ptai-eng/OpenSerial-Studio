@@ -76,29 +76,31 @@ export const TabRail: React.FC = () => {
         })}
       </div>
 
-      <div className="flex items-center gap-2 pl-4">
-        <button
-          type="button"
-          onClick={toggleInspector}
-          className={cn(
-            'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors border',
-            inspectorOpen
-              ? 'bg-zinc-800/80 text-zinc-200 border-white/15'
-              : 'bg-transparent text-zinc-500 hover:text-zinc-300 border-transparent hover:border-white/10'
-          )}
-          title="Toggle Contextual Inspector (Hotkey: ])"
-        >
-          {inspectorOpen ? (
-            <PanelRightClose className="w-3.5 h-3.5 text-cyan-400" />
-          ) : (
-            <PanelRight className="w-3.5 h-3.5 text-zinc-400" />
-          )}
-          <span className="hidden sm:inline">Inspector</span>
-          <kbd className="hidden sm:inline font-mono text-[10px] px-1 py-0.2 bg-zinc-900 border border-white/10 rounded text-zinc-400">
-            ]
-          </kbd>
-        </button>
-      </div>
+      {activeTab !== 'controls' && (
+        <div className="flex items-center gap-2 pl-4">
+          <button
+            type="button"
+            onClick={toggleInspector}
+            className={cn(
+              'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors border',
+              inspectorOpen
+                ? 'bg-zinc-800/80 text-zinc-200 border-white/15'
+                : 'bg-transparent text-zinc-500 hover:text-zinc-300 border-transparent hover:border-white/10'
+            )}
+            title="Toggle Contextual Inspector (Hotkey: ])"
+          >
+            {inspectorOpen ? (
+              <PanelRightClose className="w-3.5 h-3.5 text-cyan-400" />
+            ) : (
+              <PanelRight className="w-3.5 h-3.5 text-zinc-400" />
+            )}
+            <span className="hidden sm:inline">Inspector</span>
+            <kbd className="hidden sm:inline font-mono text-[10px] px-1 py-0.2 bg-zinc-900 border border-white/10 rounded text-zinc-400">
+              ]
+            </kbd>
+          </button>
+        </div>
+      )}
     </div>
   );
 };

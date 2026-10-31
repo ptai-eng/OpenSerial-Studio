@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ToggleLeft, ToggleRight } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -6,22 +6,33 @@ interface ToggleControlProps {
   id: string;
   label: string;
   initialValue?: boolean;
-  onSend: (data: string) => void;
+  value?: boolean;
   compact?: boolean;
+  onSend: (data: string) => void;
+  onValueChange?: (id: string, val: boolean) => void;
 }
 
 export const ToggleControl: React.FC<ToggleControlProps> = ({
   id,
   label,
   initialValue = false,
-  onSend,
+  value: controlledValue,
   compact = false,
+  onSend,
+  onValueChange,
 }) => {
-  const [isOn, setIsOn] = useState(initialValue);
+  const [isOn, setIsOn] = useState<boolean>(controlledValue ?? initialValue);
+
+  useEffect(() => {
+    if (typeof controlledValue === 'boolean') {
+      setIsOn(controlledValue);
+    }
+  }, [controlledValue]);
 
   const handleToggle = () => {
     const next = !isOn;
     setIsOn(next);
+    onValueChange?.(id, next);
     onSend(JSON.stringify({ [id]: next ? 1 : 0 }));
   };
 
@@ -29,12 +40,12 @@ export const ToggleControl: React.FC<ToggleControlProps> = ({
     <div
       className={cn(
         'flex items-center justify-between',
-        compact ? 'py-1' : 'py-2'
+        compact ? 'py-0.5' : 'py-2'
       )}
     >
       <div className="flex flex-col min-w-0 pr-2">
         <span className="text-xs font-mono font-medium text-zinc-200 truncate">{label}</span>
-        <span className="text-[10px] font-mono text-zinc-500 truncate">{id}</span>
+        {!compact && <span className="text-[10px] font-mono text-zinc-500 truncate">{id}</span>}
       </div>
 
       <button

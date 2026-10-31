@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+﻿import React, { useState, useRef, useMemo } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -190,7 +190,7 @@ export const ControlsTab: React.FC<ControlsTabProps> = ({ isActive: _isActive, o
                       : 'bg-zinc-900 text-zinc-500 border-white/5 hover:text-zinc-300'
                   )}
                 >
-                  {isPinned ? '✓ ' : '+ '}
+                  {isPinned ? 'âœ“ ' : '+ '}
                   {tab}
                 </button>
               );
@@ -227,7 +227,7 @@ export const ControlsTab: React.FC<ControlsTabProps> = ({ isActive: _isActive, o
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                     {groupItems.map((ctrl) => (
                       <ControlCard
                         key={ctrl.id}
@@ -247,3 +247,4 @@ export const ControlsTab: React.FC<ControlsTabProps> = ({ isActive: _isActive, o
     </div>
   );
 };
+
