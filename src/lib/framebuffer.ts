@@ -160,7 +160,7 @@ export interface DemuxedStreamResult {
 }
 
 /**
- * Stateful Stream Demuxer (v3.1.1)
+ * Stateful Stream Demuxer (v3.2)
  * Safely separates 8-byte [0xAA, 0x55, ...] binary pixel packets from interleaved
  * UTF-8 text telemetry across arbitrary USB CDC / UART transfer chunk boundaries.
  * Prevents 0x0A (10) bytes inside binary coordinates/colors from triggering false

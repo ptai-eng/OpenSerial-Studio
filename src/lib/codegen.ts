@@ -43,7 +43,7 @@ unsigned long lastSendTime = 0;
 const unsigned long SEND_INTERVAL_MS = 100; // 10 Hz telemetry rate
 
 /**
- * 64-Core GPU Framebuffer Helper (v3.1.1 Bit-Packed 9-Bit Coordinates 0..511)
+ * 64-Core GPU Framebuffer Helper (v3.2 Bit-Packed 9-Bit Coordinates 0..511)
  * Emits 8-byte binary pixel packet: [0xAA, 0x55, X_low, Y_low, R, G, B, CORE_AND_XY_HIGH]
  */
 static inline void sendPixel512(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b, uint8_t coreId) {
@@ -309,7 +309,7 @@ extern UART_HandleTypeDef huart2;
 #define UART_TX_BUF_SIZE 256
 
 /**
- * 64-Core GPU Framebuffer Helper (v3.1.1 Bit-Packed 9-Bit Coordinates 0..511)
+ * 64-Core GPU Framebuffer Helper (v3.2 Bit-Packed 9-Bit Coordinates 0..511)
  * Emits 8-byte binary pixel packet: [0xAA, 0x55, X_low, Y_low, R, G, B, CORE_AND_XY_HIGH]
  */
 static inline void OpenSerial_SendPixel512(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b, uint8_t coreId) {

@@ -36,7 +36,7 @@ flowchart TD
         SIM["Virtual MCU Simulator\n(DSP Harmonics / PID Motor / IoT / Framebuffer)"]
     end
 
-    subgraph BridgeDaemon ["OpenSerial Bridge Daemon (v3.1.1)"]
+    subgraph BridgeDaemon ["OpenSerial Bridge Daemon (v3.2.0)"]
         DEMUX["Stateful Binary/Text Stream Demuxer\n(8-Byte Pixel Stripper + UTF-8 Line Parser)"]
         MUX["Single-Owner Serial Multiplexer\n(Rate Limiter / Flasher Release Lock)"]
         MCP["MCP Server (JSON-RPC stdio)\n6 Autonomous Tools"]
@@ -336,7 +336,7 @@ $ npm test
 ▶ OpenSerial Studio v3.1 — Core Heatmap Palette (3/3 PASS)
 ▶ OpenSerial Studio v3.1 — 3D Raymarching Algorithm (2/2 PASS)
 ▶ OpenSerial Studio v3.1 — Closed-Loop Framebuffer Simulator (2/2 PASS)
-▶ OpenSerial Studio v3.1 — Bridge Multiplexer & v3.1.1 Hardening Suite (5/5 PASS)
+▶ OpenSerial Studio v3.2 — Bridge Multiplexer Raymarcher Channel (5/5 PASS)
 ▶ OpenSerial Studio v3.2 — UI Logic & Metrology Buffers (6/6 PASS)
 ▶ OpenSerial Studio — Workspace Persistence & Profile Serialization (4/4 PASS)
 

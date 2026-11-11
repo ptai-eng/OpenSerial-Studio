@@ -186,7 +186,7 @@ describe('OpenSerial Studio v3.1 — Closed-Loop 64-Core GPU Simulator', () => {
   });
 });
 
-describe('OpenSerial Studio v3.1 — Bridge Multiplexer Raymarcher Channel', () => {
+describe('OpenSerial Studio v3.2 — Bridge Multiplexer Raymarcher Channel', () => {
   const TEST_PORT = 8775;
   let mux: SerialMultiplexer;
 
@@ -212,7 +212,7 @@ describe('OpenSerial Studio v3.1 — Bridge Multiplexer Raymarcher Channel', () 
     assert.strictEqual(mux.status, 'disconnected');
   });
 
-  test('v3.1.1 Hardening: encodes and decodes 9-bit coordinates (up to 320x240 / 511x511) without byte overflow', () => {
+  test('v3.2: encodes and decodes 9-bit coordinates (up to 320x240 / 511x511) without byte overflow', () => {
     const pxHigh: PixelData = { x: 319, y: 239, r: 240, g: 180, b: 90, coreId: 63 };
     const encoded = encodeBinaryPixelPacket(pxHigh);
     assert.strictEqual(encoded.length, 8);
@@ -224,7 +224,7 @@ describe('OpenSerial Studio v3.1 — Bridge Multiplexer Raymarcher Channel', () 
     assert.deepStrictEqual(decoded[0], pxHigh);
   });
 
-  test('v3.1.1 Hardening: StatefulBinaryDemuxer reassembles 8-byte packets split across USB transfer chunks and shields 0x0A bytes', () => {
+  test('v3.2: StatefulBinaryDemuxer reassembles 8-byte packets split across USB transfer chunks and shields 0x0A bytes', () => {
     const demuxer = new StatefulBinaryDemuxer();
 
     // Packet with X=10 (0x0A, newline byte!) and Y=300 (bit-packed)
@@ -251,7 +251,7 @@ describe('OpenSerial Studio v3.1 — Bridge Multiplexer Raymarcher Channel', () 
     assert.strictEqual(res2.cleanTextBytes.length, 0);
   });
 
-  test('v3.1.1 Hardening: WebSocket tx_raw_hex preserves binary bytes >= 0x80 and supports release_port', async () => {
+  test('v3.2: WebSocket tx_raw_hex preserves binary bytes >= 0x80 and supports release_port', async () => {
     const ws = new WebSocket(`ws://127.0.0.1:${TEST_PORT}`);
     await new Promise<void>((resolve) => ws.on('open', () => resolve()));
 
@@ -274,7 +274,7 @@ describe('OpenSerial Studio v3.1 — Bridge Multiplexer Raymarcher Channel', () 
     ws.close();
   });
 
-  test('v3.1.1 Hardening: Firmware Codegen includes sendPixel512 bit-packed helper across C++/STM32/MicroPython', () => {
+  test('v3.2: Firmware Codegen includes sendPixel512 bit-packed helper across C++/STM32/MicroPython', () => {
     const ino = generateArduinoCode(['GPU_FPS'], []);
     assert.ok(ino.includes('sendPixel512(uint16_t x, uint16_t y'));
     assert.ok(ino.includes('(((x >> 8) & 0x01) << 6)'));
